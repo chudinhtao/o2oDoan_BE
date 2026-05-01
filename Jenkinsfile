@@ -1,26 +1,25 @@
 pipeline {
-    // Chạy trên bất kỳ máy Jenkins (Node) nào có cài Docker
     agent any
 
     environment {
-        // Tên tài khoản Docker Hub mặc định (Thay thế nếu cần)
-        // Lưu ý: Bạn cần tạo Credentials trong Jenkins loại "Username with password" có ID là 'dockerhub-credentials'
         DOCKER_CREDS = credentials('dockerhub-credentials')
         DOCKERHUB_USERNAME = "${DOCKER_CREDS_USR}"
+
+        SSH_CREDENTIAL_ID = 'ssh-server-key'
+        REMOTE_USER = 'cdt'
+        REMOTE_HOST = '192.168.0.105'
+        REMOTE_DIR  = '/home/cdt/your-repo' // thư mục chứa docker-compose.yml trên server
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                // Kéo code mới nhất từ Git về
                 checkout scm
             }
         }
 
         stage('Docker Login') {
             steps {
-                // Đăng nhập vào Docker Hub để chuẩn bị đẩy Image
-                // Lưu ý: Nếu Jenkins cài trên Windows, hãy đổi 'sh' thành 'bat'
                 sh 'echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin'
             }
         }
@@ -28,21 +27,42 @@ pipeline {
         stage('Build & Push Microservices') {
             steps {
                 script {
-                    // Danh sách 9 services
-                    def services = ["eureka-server", "api-gateway", "auth-service", "menu-service", "order-service", "kds-service", "report-service", "notification-service", "ai-service"]
-                    
-                    for (int i = 0; i < services.size(); ++i) {
-                        def service = services[i]
-                        
-                        echo "================================================="
-                        echo "🚀 BUILDING AND PUSHING: ${service}"
-                        echo "================================================="
-                        
+                    def services = [
+                        "eureka-server",
+                        "api-gateway",
+                        "auth-service",
+                        "menu-service",
+                        "order-service",
+                        "kds-service",
+                        "report-service",
+                        "notification-service",
+                        "ai-service"
+                    ]
+
+                    for (service in services) {
+
                         def imageName = "${DOCKERHUB_USERNAME}/fnb-${service}:latest"
-                        
+
+                        echo "🚀 BUILDING: ${service}"
+
                         sh "docker build -f ./${service}/Dockerfile -t ${imageName} ."
                         sh "docker push ${imageName}"
                     }
+                }
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                sshagent([env.SSH_CREDENTIAL_ID]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} '
+                            cd ${env.REMOTE_DIR} &&
+                            git pull &&
+                            docker-compose pull &&
+                            docker-compose up -d
+                        '
+                    """
                 }
             }
         }
@@ -50,16 +70,14 @@ pipeline {
 
     post {
         always {
-            node(null) {
-                sh 'docker logout || true'
-            }
-            echo "🧹 Đã dọn dẹp phiên Docker."
+            sh 'docker logout || true'
+            echo "🧹 Cleaned Docker session"
         }
         success {
-            echo "✅ Toàn bộ Backend đã được Build và Push thành công lên mây!"
+            echo "✅ Build + Deploy thành công!"
         }
         failure {
-            echo "❌ Quá trình CI/CD thất bại. Hãy kiểm tra lại log."
+            echo "❌ Pipeline thất bại!"
         }
     }
 }
