@@ -27,27 +27,21 @@ pipeline {
 
         stage('Build & Push Microservices') {
             steps {
-                // Chui vào thư mục backend
-                dir('backend') {
-                    script {
-                        // Danh sách 9 services
-                        def services = ["eureka-server", "api-gateway", "auth-service", "menu-service", "order-service", "kds-service", "report-service", "notification-service", "ai-service"]
+                script {
+                    // Danh sách 9 services
+                    def services = ["eureka-server", "api-gateway", "auth-service", "menu-service", "order-service", "kds-service", "report-service", "notification-service", "ai-service"]
+                    
+                    for (int i = 0; i < services.size(); ++i) {
+                        def service = services[i]
                         
-                        for (int i = 0; i < services.size(); ++i) {
-                            def service = services[i]
-                            
-                            echo "=================================================="
-                            echo "🚀 BUILDING AND PUSHING: ${service}"
-                            echo "=================================================="
-                            
-                            def imageName = "${DOCKERHUB_USERNAME}/fnb-${service}:latest"
-                            
-                            // Build Image (Đổi 'sh' thành 'bat' nếu dùng Windows)
-                            sh "docker build -f ./${service}/Dockerfile -t ${imageName} ."
-                            
-                            // Đẩy lên Docker Hub
-                            sh "docker push ${imageName}"
-                        }
+                        echo "================================================="
+                        echo "🚀 BUILDING AND PUSHING: ${service}"
+                        echo "================================================="
+                        
+                        def imageName = "${DOCKERHUB_USERNAME}/fnb-${service}:latest"
+                        
+                        sh "docker build -f ./${service}/Dockerfile -t ${imageName} ."
+                        sh "docker push ${imageName}"
                     }
                 }
             }
@@ -56,9 +50,10 @@ pipeline {
 
     post {
         always {
-            // Luôn luôn đăng xuất Docker sau khi chạy xong để bảo mật máy chủ CI
-            echo "🧹 Dọn dẹp phiên làm việc Docker..."
-            sh 'docker logout'
+            node(null) {
+                sh 'docker logout || true'
+            }
+            echo "🧹 Đã dọn dẹp phiên Docker."
         }
         success {
             echo "✅ Toàn bộ Backend đã được Build và Push thành công lên mây!"
