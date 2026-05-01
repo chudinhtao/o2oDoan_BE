@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.fnb</groupId>
+    <artifactId>fnb-backend-root</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Fnb Backend Root</name>
+
+    <modules>
+        <module>common-lib</module>
+        <module>eureka-server</module>
+        <module>api-gateway</module>
+        <module>auth-service</module>
+        <module>order-service</module>
+        <module>menu-service</module>
+        <module>kds-service</module>
+        <module>report-service</module>
+        <module>notification-service</module>
+        <module>ai-service</module>
+        <module>ai-tools-service</module>
+    </modules>
+
+</project>

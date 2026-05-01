@@ -1,0 +1,189 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # Infrastructure (Postgres, Redis, Kafka)
+  # ============================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fnb-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-fnb_db}
+      POSTGRES_USER: ${DB_USER:-fnb_user}
+      POSTGRES_PASSWORD: ${DB_PASS:-fnb_pass}
+      PGTZ: Asia/Ho_Chi_Minh
+    ports:
+      - "5432:5432" # Đã sửa thành port chuẩn cho Production
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fnb_user} -d ${DB_NAME:-fnb_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: fnb-redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: fnb-zookeeper
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: fnb-kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      retries: 5
+
+  # ============================================================
+  # Microservices
+  # Lưu ý: Thay chữ DOCKERHUB_USERNAME bằng tên tài khoản của bạn
+  # ============================================================
+  eureka-server:
+    image: ${DOCKERHUB_USERNAME}/fnb-eureka-server:latest
+    container_name: fnb-eureka-server
+    restart: always
+    ports:
+      - "8761:8761"
+    env_file:
+      - .env
+
+  api-gateway:
+    image: ${DOCKERHUB_USERNAME}/fnb-api-gateway:latest
+    container_name: fnb-api-gateway
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - REDIS_HOST=redis
+    depends_on:
+      - eureka-server
+
+  auth-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-auth-service:latest
+    container_name: fnb-auth-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - DB_HOST=postgres
+      - DB_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  order-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-order-service:latest
+    container_name: fnb-order-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  menu-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-menu-service:latest
+    container_name: fnb-menu-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kds-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-kds-service:latest
+    container_name: fnb-kds-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  report-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-report-service:latest
+    container_name: fnb-report-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - DB_HOST=postgres
+      - DB_PORT=5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-notification-service:latest
+    container_name: fnb-notification-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+
+  ai-service:
+    image: ${DOCKERHUB_USERNAME}/fnb-ai-service:latest
+    container_name: fnb-ai-service
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - EUREKA_HOST=eureka-server
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,0 +1,76 @@
+server:
+  port: 8087
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+      enabled: true
+
+spring:
+  application:
+    name: ai-service
+
+  # ─── Database (Chọc thẳng vào DB dùng chung) ────────────────────────
+  datasource:
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?TimeZone=UTC"
+    username: ${DB_USER:fnb_user}
+    password: ${DB_PASS:fnb_pass}
+    driver-class-name: org.postgresql.Driver
+
+  # ─── Redis (Lưu context chat / Cache) ──────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # ─── Tắt Flyway vì ai-service không tự quản lý migration DB ─────────
+  flyway:
+    enabled: false
+
+# ─── LangChain4j: Gemini via OpenAI-compatible API ───────────────
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.groq.com/openai/v1
+      api-key: ${GROQ_API_KEY:}
+      model-name: meta-llama/llama-4-scout-17b-16e-instruct
+      temperature: 0.3
+      max-tokens: 1024
+      log-requests: true
+      log-responses: true
+    # Embedding model: Dùng all-MiniLM-L6-v2 cục bộ, không tốn token
+    embedding-model:
+      enabled: false   # Tắt OpenAI embedding, dùng local model thay thế
+
+# ─── Eureka ───────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: http://${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
+  instance:
+    prefer-ip-address: true
+
+# ─── JWT (lấy secret chung từ biến môi trường) ───────────────────────
+jwt:
+  secret: ${JWT_SECRET:fnb-self-ordering-super-secret-key-must-be-at-least-256bits-long}
+
+# ─── Logging ──────────────────────────────────────────────────────────
+logging:
+  level:
+    com.fnb.ai: DEBUG
+    dev.langchain4j: DEBUG
+
+# ─── Actuator ─────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

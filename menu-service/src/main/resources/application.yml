@@ -1,0 +1,81 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: menu-service
+
+  datasource:
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?currentSchema=menu&TimeZone=UTC"
+    username: ${DB_USER:fnb_user}
+    password: ${DB_PASS:fnb_pass}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: menu
+
+  flyway:
+    enabled: true
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?TimeZone=UTC"
+    user: ${DB_USER:fnb_user}
+    password: ${DB_PASS:fnb_pass}
+    schemas: menu
+    locations: classpath:db/migration
+    create-schemas: true
+    validate-on-migrate: false   # Tắt validate checksum - dùng cho dev khi apply migration thủ công
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000   # 5 phút default
+    # Nếu Redis chưa chạy, comment dòng trên và bật dòng dưới:
+    # type: simple
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    # Không fail-fast khi Kafka chưa sẵn sàng
+    listener:
+      missing-topics-fatal: false
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
+  instance:
+    prefer-ip-address: true
+    
+jwt:
+  secret: ${JWT_SECRET:}
+
+app:
+  cloudinary:
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}
+
+
+logging:
+  level:
+    com.fnb.menu: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # PostgreSQL 16
+  # ============================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fnb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-fnb_db}
+      POSTGRES_USER: ${DB_USER:-fnb_user}
+      POSTGRES_PASSWORD: ${DB_PASS:-fnb_pass}
+      PGTZ: Asia/Ho_Chi_Minh
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fnb_user -d fnb_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Redis 7
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: fnb-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Zookeeper (required by Kafka)
+  # ============================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: fnb-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # ============================================================
+  # Apache Kafka 3.7
+  # ============================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: fnb-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ============================================================
+  # pgAdmin 4 (DB UI tại localhost:5050)
+  # ============================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fnb-pgadmin
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@fnb.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+
+  # ============================================================
+  # Kafdrop (Kafka UI tại localhost:9000)
+  # ============================================================
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: fnb-kafdrop
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:29092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+
+volumes:
+  postgres_data:
+    name: fnb-self-ordering_postgres_data
+    driver: local

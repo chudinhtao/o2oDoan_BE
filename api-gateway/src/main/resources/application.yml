@@ -1,0 +1,103 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  # ─── Redis (Rate Limiting) ───────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  # ─── Cloud Gateway Routes ────────────────────────────────────────────
+  cloud:
+    gateway:
+      # Bật discovery client để dùng lb://service-name
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      routes:
+        # ── auth-service ──────────────────────────────────────────────
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**, /api/admin/staff/**
+
+        # ── menu-service ──────────────────────────────────────────────
+        - id: menu-service
+          uri: lb://menu-service
+          predicates:
+            - Path=/api/menu/**, /api/promotions/**, /api/admin/menu/**, /api/admin/promotions, /api/admin/promotions/**, /api/admin/profile, /api/admin/profile/**
+
+        # ── order-service ─────────────────────────────────────────────
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/tables/**, /api/sessions/**, /api/orders/**, /api/staff-calls/**, /api/admin/tables/**, /api/payments/**
+
+        # ── kds-service ───────────────────────────────────────────────
+        - id: kds-service
+          uri: lb://kds-service
+          predicates:
+            - Path=/api/kds/**
+
+        # ── report-service ────────────────────────────────────────────
+        - id: report-service
+          uri: lb://report-service
+          predicates:
+            - Path=/api/reports/**
+
+        # ── ai-service ────────────────────────────────────────────────
+        - id: ai-service-customer
+          uri: lb://ai-service
+          predicates:
+            - Path=/api/customer/ai/**
+
+        - id: ai-service-admin
+          uri: lb://ai-service
+          predicates:
+            - Path=/api/admin/ai/**
+
+        - id: ai-service-internal
+          uri: lb://ai-service
+          predicates:
+            - Path=/api/internal/ai/**
+
+        # ── notification-service (WebSocket) ─────────────────────────
+        - id: notification-service-ws
+          uri: lb://notification-service
+          predicates:
+            - Path=/ws/**
+
+      # Default filters cho tất cả routes
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+# ─── Eureka ────────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: http://${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
+  instance:
+    prefer-ip-address: true
+
+# ─── JWT ───────────────────────────────────────────────────────────────
+jwt:
+  secret: ${JWT_SECRET:}
+
+# ─── Logging ───────────────────────────────────────────────────────────
+logging:
+  level:
+    com.fnb.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
+
+# ─── Actuator ──────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, gateway
