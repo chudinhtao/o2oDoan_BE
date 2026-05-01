@@ -21,7 +21,6 @@
         <module>report-service</module>
         <module>notification-service</module>
         <module>ai-service</module>
-        <module>ai-tools-service</module>
     </modules>
 
 </project>
