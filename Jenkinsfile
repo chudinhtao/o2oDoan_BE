@@ -8,7 +8,7 @@ pipeline {
         SSH_CREDENTIAL_ID = 'ssh-server-key'
         REMOTE_USER = 'cdt'
         REMOTE_HOST = '192.168.0.107'
-        REMOTE_DIR  = '/home/cdt/fnb-project/backend' // thư mục chứa docker-compose.yml trên server
+        REMOTE_DIR  = '/home/cdt/fnb-project/backend'
     }
 
     stages {
@@ -40,7 +40,6 @@ pipeline {
                     ]
 
                     for (service in services) {
-
                         def imageName = "${DOCKERHUB_USERNAME}/fnb-${service}:latest"
 
                         echo "🚀 BUILDING: ${service}"
@@ -52,24 +51,44 @@ pipeline {
             }
         }
 
+        // ✅ Test SSH
+        stage('Test SSH') {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'ssh-server-key', keyFileVariable: 'SSH_KEY')]) {
+                    sh """
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} 'echo OK'
+                    """
+                }
+            }
+        }
+
         stage('Deploy to Server') {
             steps {
                 script {
-                    sshagent([env.SSH_CREDENTIAL_ID]) {
-                        // 1. Tạo thư mục từ xa nếu chưa có
-                        sh "ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} 'mkdir -p ${env.REMOTE_DIR}'"
-                        
-                        // 2. Đẩy file docker-compose.prod.yml và .env lên server
-                        // Lưu ý: file docker-compose.prod.yml nằm trong thư mục backend
-                        sh "scp -o StrictHostKeyChecking=no backend/docker-compose.prod.yml ${env.REMOTE_USER}@${env.REMOTE_HOST}:${env.REMOTE_DIR}/"
-                        sh "scp -o StrictHostKeyChecking=no backend/.env ${env.REMOTE_USER}@${env.REMOTE_HOST}:${env.REMOTE_DIR}/"
-
-                        // 3. Thực hiện pull và up
+                    withCredentials([sshUserPrivateKey(credentialsId: 'ssh-server-key', keyFileVariable: 'SSH_KEY')]) {
                         sh """
-                            ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "
-                                cd ${env.REMOTE_DIR} &&
-                                docker-compose -f docker-compose.prod.yml pull &&
-                                docker-compose -f docker-compose.prod.yml up -d
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} "
+                                mkdir -p ${REMOTE_DIR}
+                            "
+                        """
+
+                        sh """
+                            scp -i $SSH_KEY -o StrictHostKeyChecking=no backend/docker-compose.prod.yml ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+                        """
+
+                        sh """
+                            scp -i $SSH_KEY -o StrictHostKeyChecking=no backend/.env ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+                        """
+
+                        sh """
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} "
+                                cd ${REMOTE_DIR} &&
+
+                                echo '📥 Pull images...'
+                                docker compose -f docker-compose.prod.yml pull &&
+
+                                echo '🚀 Restart services...'
+                                docker compose -f docker-compose.prod.yml up -d
                             "
                         """
                     }
@@ -81,7 +100,6 @@ pipeline {
     post {
         always {
             sh 'docker logout || true'
-            echo "🧹 Cleaned Docker session"
         }
         success {
             echo "✅ Build + Deploy thành công!"
