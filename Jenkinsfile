@@ -54,23 +54,25 @@ pipeline {
 
         stage('Deploy to Server') {
             steps {
-                sshagent([env.SSH_CREDENTIAL_ID]) {
-                    // 1. Tạo thư mục từ xa nếu chưa có
-                    sh "ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} 'mkdir -p ${env.REMOTE_DIR}'"
-                    
-                    // 2. Đẩy file docker-compose.prod.yml và .env lên server
-                    // Lưu ý: file docker-compose.prod.yml nằm trong thư mục backend
-                    sh "scp -o StrictHostKeyChecking=no backend/docker-compose.prod.yml ${env.REMOTE_USER}@${env.REMOTE_HOST}:${env.REMOTE_DIR}/"
-                    sh "scp -o StrictHostKeyChecking=no backend/.env ${env.REMOTE_USER}@${env.REMOTE_HOST}:${env.REMOTE_DIR}/"
+                script {
+                    sshagent([env.SSH_CREDENTIAL_ID]) {
+                        // 1. Tạo thư mục từ xa nếu chưa có
+                        sh "ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} 'mkdir -p ${env.REMOTE_DIR}'"
+                        
+                        // 2. Đẩy file docker-compose.prod.yml và .env lên server
+                        // Lưu ý: file docker-compose.prod.yml nằm trong thư mục backend
+                        sh "scp -o StrictHostKeyChecking=no backend/docker-compose.prod.yml ${env.REMOTE_USER}@${env.REMOTE_HOST}:${env.REMOTE_DIR}/"
+                        sh "scp -o StrictHostKeyChecking=no backend/.env ${env.REMOTE_USER}@${env.REMOTE_HOST}:${env.REMOTE_DIR}/"
 
-                    // 3. Thực hiện pull và up
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "
-                            cd ${env.REMOTE_DIR} &&
-                            docker-compose -f docker-compose.prod.yml pull &&
-                            docker-compose -f docker-compose.prod.yml up -d
-                        "
-                    """
+                        // 3. Thực hiện pull và up
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ${env.REMOTE_USER}@${env.REMOTE_HOST} "
+                                cd ${env.REMOTE_DIR} &&
+                                docker-compose -f docker-compose.prod.yml pull &&
+                                docker-compose -f docker-compose.prod.yml up -d
+                            "
+                        """
+                    }
                 }
             }
         }
