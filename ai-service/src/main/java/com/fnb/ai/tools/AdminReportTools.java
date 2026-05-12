@@ -7,8 +7,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.math.BigDecimal;
+
+import java.util.Comparator;
 
 /**
  * Bộ công cụ báo cáo cho Admin AI Agent.
@@ -31,7 +36,7 @@ public class AdminReportTools {
             LocalDate toDate = LocalDate.parse(to);
             
             // Tính toán kỳ trước (Previous Period)
-            long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(fromDate, toDate) + 1;
+            long daysBetween = ChronoUnit.DAYS.between(fromDate, toDate) + 1;
             LocalDate prevFromDate = fromDate.minusDays(daysBetween);
             LocalDate prevToDate = fromDate.minusDays(1);
 
@@ -44,12 +49,12 @@ public class AdminReportTools {
             var prevCall = reportFeignClient.getStaffCallStats(prevFromDate, prevToDate).getData();
 
             // Tính toán chỉ số kỳ này
-            java.math.BigDecimal currTotalRev = currRev != null ? currRev.stream().map(ReportFeignClient.RevenueRow::revenue).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add) : java.math.BigDecimal.ZERO;
+            BigDecimal currTotalRev = currRev != null ? currRev.stream().map(ReportFeignClient.RevenueRow::revenue).reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
             long currTotalOrders = currRev != null ? currRev.stream().mapToLong(ReportFeignClient.RevenueRow::totalOrders).sum() : 0;
             long currTotalCalls = currCall != null ? currCall.stream().mapToLong(ReportFeignClient.StaffCallRow::callCount).sum() : 0;
 
             // Tính toán chỉ số kỳ trước
-            java.math.BigDecimal prevTotalRev = prevRev != null ? prevRev.stream().map(ReportFeignClient.RevenueRow::revenue).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add) : java.math.BigDecimal.ZERO;
+            BigDecimal prevTotalRev = prevRev != null ? prevRev.stream().map(ReportFeignClient.RevenueRow::revenue).reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
             long prevTotalOrders = prevRev != null ? prevRev.stream().mapToLong(ReportFeignClient.RevenueRow::totalOrders).sum() : 0;
 
             // Tính % tăng trưởng
@@ -66,7 +71,7 @@ public class AdminReportTools {
             if (currTotalOrders > 0 && prevTotalOrders > 0) {
                 double currAov = currTotalRev.doubleValue() / currTotalOrders;
                 double prevAov = prevTotalRev.doubleValue() / prevTotalOrders;
-                sb.append("💳 Giá trị đơn TB (AOV): ").append(formatVnd(java.math.BigDecimal.valueOf(currAov)))
+                sb.append("💳 Giá trị đơn TB (AOV): ").append(formatVnd(BigDecimal.valueOf(currAov)))
                   .append(" (").append(calculateGrowth(currAov, prevAov)).append(")\n");
             }
 
@@ -85,12 +90,12 @@ public class AdminReportTools {
         }
     }
 
-    private String calculateGrowth(java.math.BigDecimal current, java.math.BigDecimal previous) {
-        if (previous == null || previous.compareTo(java.math.BigDecimal.ZERO) == 0) return "n/a";
-        java.math.BigDecimal growth = current.subtract(previous)
-                .divide(previous, 4, java.math.RoundingMode.HALF_UP)
-                .multiply(java.math.BigDecimal.valueOf(100));
-        return (growth.compareTo(java.math.BigDecimal.ZERO) >= 0 ? "+" : "") + String.format("%.1f", growth) + "%";
+    private String calculateGrowth(BigDecimal current, BigDecimal previous) {
+        if (previous == null || previous.compareTo(BigDecimal.ZERO) == 0) return "n/a";
+        BigDecimal growth = current.subtract(previous)
+                .divide(previous, 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100));
+        return (growth.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "") + String.format("%.1f", growth) + "%";
     }
 
     private String calculateGrowth(double current, double previous) {
@@ -116,9 +121,9 @@ public class AdminReportTools {
             List<ReportFeignClient.RevenueRow> rows = res.getData();
 
             long totalOrders = rows.stream().mapToLong(ReportFeignClient.RevenueRow::totalOrders).sum();
-            java.math.BigDecimal totalRevenue = rows.stream()
+            BigDecimal totalRevenue = rows.stream()
                     .map(ReportFeignClient.RevenueRow::revenue)
-                    .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             StringBuilder sb = new StringBuilder();
             sb.append("📊 Doanh thu từ ").append(from).append(" đến ").append(to).append(":\n\n");
@@ -218,7 +223,7 @@ public class AdminReportTools {
 
             // Tìm giờ cao điểm
             var peak = res.getData().stream()
-                    .max(java.util.Comparator.comparingLong(ReportFeignClient.HourlyRow::orderCount))
+                    .max(Comparator.comparingLong(ReportFeignClient.HourlyRow::orderCount))
                     .orElse(null);
 
             StringBuilder sb = new StringBuilder();
@@ -399,7 +404,7 @@ public class AdminReportTools {
             StringBuilder sb = new StringBuilder();
             sb.append("🚫 PHÂN TÍCH ĐƠN HỦY từ ").append(from).append(" đến ").append(to).append(":\n\n");
 
-            java.math.BigDecimal totalLost = java.math.BigDecimal.ZERO;
+            BigDecimal totalLost = BigDecimal.ZERO;
             long totalCancelled = 0;
             for (var row : res.getData()) {
                 totalCancelled += row.cancelCount();
@@ -421,7 +426,7 @@ public class AdminReportTools {
 
     // ─── Helper ──────────────────────────────────────────────────────────────
 
-    private String formatVnd(java.math.BigDecimal amount) {
+    private String formatVnd(BigDecimal amount) {
         if (amount == null) return "0đ";
         return String.format("%,.0f", amount) + "đ";
     }

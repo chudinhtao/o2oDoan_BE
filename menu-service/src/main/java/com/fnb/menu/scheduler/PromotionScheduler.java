@@ -3,6 +3,8 @@ package com.fnb.menu.scheduler;
 import com.fnb.menu.repository.PromotionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,7 @@ public class PromotionScheduler {
      * Chạy mỗi 5 phút (đủ độ chính xác cho F&B, giảm tải so với 1 phút).
      */
     @Scheduled(fixedRate = 300_000) // 5 phút
+    @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void autoExpirePromotions() {
         int updated = promotionRepository.bulkExpire(LocalDateTime.now());

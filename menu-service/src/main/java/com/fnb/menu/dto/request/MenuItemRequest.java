@@ -24,8 +24,6 @@ public class MenuItemRequest {
     @DecimalMin(value = "0", message = "Giá phải >= 0")
     private BigDecimal basePrice;
 
-    private BigDecimal salePrice;
-
     @NotBlank(message = "Station không được trống")
     @Pattern(regexp = "HOT|COLD|DRINK", message = "Station phải là HOT, COLD hoặc DRINK")
     private String station;

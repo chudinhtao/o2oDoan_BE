@@ -109,7 +109,13 @@
         <!-- ─── Common Library ───────────────────────────────────── -->
         <dependency>
             <groupId>com.fnb</groupId>
-            <artifactId>common-lib</artifactId>
+            <artifactId>common-core</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fnb</groupId>
+            <artifactId>common-security</artifactId>
             <version>1.0.0</version>
         </dependency>
 

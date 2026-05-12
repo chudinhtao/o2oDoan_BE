@@ -10,6 +10,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 @FeignClient(name = "menu-service")
 public interface MenuFeignClient {
@@ -44,8 +46,8 @@ public interface MenuFeignClient {
             String discountType,
             BigDecimal discountValue,
             BigDecimal maxDiscount,
-            java.time.LocalDateTime startAt,
-            java.time.LocalDateTime endAt,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
             boolean stackable,
             boolean active,
             String displayStatus,
@@ -80,8 +82,8 @@ public interface MenuFeignClient {
     record ScheduleResponse(
             UUID id,
             int dayOfWeek,
-            java.time.LocalTime startTime,
-            java.time.LocalTime endTime
+            LocalTime startTime,
+            LocalTime endTime
     ) {}
 
     // [Phase 1.5] Menu overview records

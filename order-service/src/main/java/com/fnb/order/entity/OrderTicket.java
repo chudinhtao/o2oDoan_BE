@@ -30,6 +30,7 @@ public class OrderTicket {
     @Column(length = 20)
     @Builder.Default
     private String status = "PENDING";
+    // PENDING, PREPARING, DONE, SERVED, CANCELLED, RETURNED
 
     @Column(columnDefinition = "TEXT")
     private String note;

@@ -1,5 +1,6 @@
 server:
   port: 8087
+
   servlet:
     encoding:
       charset: UTF-8
@@ -40,7 +41,7 @@ langchain4j:
   open-ai:
     chat-model:
       base-url: https://api.groq.com/openai/v1
-      api-key: ${GROQ_API_KEY:}
+      api-key: ${GROQ_API_KEY}
       model-name: meta-llama/llama-4-scout-17b-16e-instruct
       temperature: 0.3
       max-tokens: 1024
@@ -60,7 +61,12 @@ eureka:
 
 # ─── JWT (lấy secret chung từ biến môi trường) ───────────────────────
 jwt:
-  secret: ${JWT_SECRET:fnb-self-ordering-super-secret-key-must-be-at-least-256bits-long}
+  secret: ${JWT_SECRET}
+
+# ─── Internal Auth ───────────────────────────────────────────────────
+internal:
+  secret: ${INTERNAL_SECRET}
+
 
 # ─── Logging ──────────────────────────────────────────────────────────
 logging:

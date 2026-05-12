@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "orders", schema = "orders")
@@ -25,8 +26,8 @@ public class KdsOrder {
     private KdsTable table;
 
     @Column(name = "subtotal")
-    private java.math.BigDecimal subtotal;
+    private BigDecimal subtotal;
 
     @Column(name = "total")
-    private java.math.BigDecimal total;
+    private BigDecimal total;
 }

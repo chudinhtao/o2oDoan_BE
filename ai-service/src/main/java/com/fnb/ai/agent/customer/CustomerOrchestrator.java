@@ -5,6 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
+import com.fnb.ai.tools.CustomerAiTools;
+import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Pattern;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Orchestrator điều phối luồng chat của Customer.
@@ -20,8 +26,8 @@ public class CustomerOrchestrator {
     private final MenuAgent menuAgent;
     private final OrderAgent orderAgent;
     private final GeneralAgent generalAgent;
-    private final com.fnb.ai.tools.CustomerAiTools tools;
-    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final CustomerAiTools tools;
+    private final JdbcTemplate jdbc;
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
 
     public String processChat(String sessionToken, String userMessage) {
@@ -65,11 +71,11 @@ public class CustomerOrchestrator {
             try {
                 // Mã hóa câu hỏi thành Vector
                 dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(userMessage).content();
-                String vectorString = java.util.Arrays.toString(embedding.vector());
+                String vectorString = Arrays.toString(embedding.vector());
                 
                 // Tìm trong Cache xem có câu nào giống >= 95% không VÀ chưa quá 15 phút
                 String cacheQuery = "SELECT answer FROM menu.ai_semantic_cache WHERE embedding <=> ?::vector < 0.05 AND created_at > NOW() - INTERVAL '15 minutes' LIMIT 1";
-                java.util.List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString);
+                List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString);
                 
                 if (!cached.isEmpty()) {
                     log.info("[SEMANTIC CACHE] ⚡ Cache HIT cho câu hỏi: {}", userMessage);
@@ -99,8 +105,8 @@ public class CustomerOrchestrator {
      */
     private String removeAccents(String text) {
         if (text == null) return "";
-        String normalized = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD);
-        return java.util.regex.Pattern.compile("\\p{InCombiningDiacriticalMarks}+").matcher(normalized)
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFD);
+        return Pattern.compile("\\p{InCombiningDiacriticalMarks}+").matcher(normalized)
                 .replaceAll("").replace("đ", "d").replace("Đ", "D");
     }
 }

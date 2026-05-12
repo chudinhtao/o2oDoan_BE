@@ -20,6 +20,8 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import com.fnb.common.util.BundleMatcher;
+import com.fnb.common.util.PricingEngine;
 
 @Slf4j
 @Service
@@ -112,11 +114,11 @@ public class CartService {
                     priceMap.put(itemId, item.getUnitPrice());
                     
                     var itemPromos = productAutoPromos.stream()
-                            .filter(p -> com.fnb.common.util.PricingEngine.isApplicable(p.targets(), itemId, categoryId))
+                            .filter(p -> PricingEngine.isApplicable(p.targets(), itemId, categoryId))
                             .toList();
                     
                     if (!itemPromos.isEmpty()) {
-                        var bestFlash = com.fnb.common.util.PricingEngine.selectBestPromotion(itemPromos, item.getUnitPrice());
+                        var bestFlash = PricingEngine.selectBestPromotion(itemPromos, item.getUnitPrice());
                         flashSaleBenefitMap.put(itemId, bestFlash.getDiscountAmount());
                     } else {
                         flashSaleBenefitMap.put(itemId, BigDecimal.ZERO);
@@ -140,7 +142,7 @@ public class CartService {
                                 itemsFound++;
                             }
                         }
-                        BigDecimal bundleDiscount = com.fnb.common.util.PricingEngine.calculateRawDiscount(
+                        BigDecimal bundleDiscount = PricingEngine.calculateRawDiscount(
                                 bBase, rule.getDiscountType(), rule.getDiscountValue(), rule.getMaxDiscount());
                                 
                         log.info("Check Combo '{}': Tìm thấy {}/{} món, Tổng gốc={}, Loại={}, Giá trị={}, Mức giảm={}", 
@@ -155,7 +157,7 @@ public class CartService {
                     }).toList();
 
                     if (!profitableBundles.isEmpty()) {
-                        var matchedBundles = com.fnb.common.util.BundleMatcher.matchBundles(cartMap, profitableBundles, priceMap);
+                        var matchedBundles = BundleMatcher.matchBundles(cartMap, profitableBundles, priceMap);
                         for (var res : matchedBundles) {
                             log.info("Đã khớp Combo: {} x{}", res.getRule().getName(), res.getCount());
                             totalAutoDiscount = totalAutoDiscount.add(res.getTotalDiscount());
@@ -177,12 +179,12 @@ public class CartService {
                     UUID itemId = item.getMenuItemId();
                     UUID categoryId = itemCategoryMap.get(itemId);
                     var itemPromos = productAutoPromos.stream()
-                            .filter(p -> com.fnb.common.util.PricingEngine.isApplicable(p.targets(), itemId, categoryId))
+                            .filter(p -> PricingEngine.isApplicable(p.targets(), itemId, categoryId))
                             .toList();
 
                     if (!itemPromos.isEmpty()) {
                         BigDecimal basePrice = item.getUnitPrice() != null ? item.getUnitPrice() : BigDecimal.ZERO;
-                        var bestResult = com.fnb.common.util.PricingEngine.selectBestPromotion(itemPromos, basePrice);
+                        var bestResult = PricingEngine.selectBestPromotion(itemPromos, basePrice);
                         if (bestResult.getPromotion() != null) {
                             totalAutoDiscount = totalAutoDiscount.add(bestResult.getDiscountAmount().multiply(BigDecimal.valueOf(remainingQty)));
                             item.setHasFlashSale(true);
@@ -202,10 +204,10 @@ public class CartService {
                         .toList();
 
                 if (!orderAutoPromos.isEmpty()) {
-                    var bestResult = com.fnb.common.util.PricingEngine.selectBestPromotion(orderAutoPromos, subtotalAfterL0L1);
+                    var bestResult = PricingEngine.selectBestPromotion(orderAutoPromos, subtotalAfterL0L1);
                     if (bestResult.getPromotion() != null) {
                         if (Boolean.FALSE.equals(bestResult.getPromotion().stackable())) {
-                            BigDecimal standAloneDiscount = com.fnb.common.util.PricingEngine.calculateRawDiscount(
+                            BigDecimal standAloneDiscount = PricingEngine.calculateRawDiscount(
                                 cart.getOriginalTotal(), bestResult.getPromotion().discountType(), 
                                 bestResult.getPromotion().discountValue(), bestResult.getPromotion().maxDiscount()
                             );
@@ -266,13 +268,12 @@ public class CartService {
             String json = objectMapper.writeValueAsString(cart);
             redisTemplate.opsForValue().set(key, json, CART_TTL_HOURS, TimeUnit.HOURS);
 
-            // Lấy Session để biết bàn số mấy
-            SessionResponse session = sessionService
-                    .getSessionCurrent(cart.getSessionToken());
+            SessionResponse session = sessionService.getSessionCurrent(cart.getSessionToken());
 
             CartUpdatedEvent event = CartUpdatedEvent.builder()
                     .sessionToken(cart.getSessionToken())
                     .tableNumber(session.getTableNumber())
+                    .orderType(session.getOrderType())
                     .build();
             applicationEventPublisher.publishEvent(event);
 

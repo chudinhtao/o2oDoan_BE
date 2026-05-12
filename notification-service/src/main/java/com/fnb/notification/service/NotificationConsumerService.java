@@ -21,15 +21,23 @@ public class NotificationConsumerService {
         log.info("Received order.created: {}", payload);
         // Bắn cho KDS biết có đơn mới
         messagingTemplate.convertAndSend("/topic/kds/orders", payload);
-        
+
         try {
             JsonNode node = objectMapper.readTree(payload);
-            if (node.has("sessionToken")) {
+
+            // Bắn cho client đang track đơn theo session (cả DINE_IN lẫn TAKEAWAY)
+            if (node.has("sessionToken") && !node.get("sessionToken").isNull()) {
                 String sessionToken = node.get("sessionToken").asText();
-                messagingTemplate.convertAndSend("/topic/sessions/" + sessionToken + "/orders", payload);
+                if (!sessionToken.isBlank()) {
+                    messagingTemplate.convertAndSend("/topic/sessions/" + sessionToken + "/orders", payload);
+                }
             }
-            // Bắn lên topic tổng cho POS cập nhật sơ đồ bàn (luôn bắn)
+
+            // Topic tổng cho POS — backward compat (DINE_IN sơ đồ bàn)
             messagingTemplate.convertAndSend("/topic/pos/tables", payload);
+            // Topic mới — cả DINE_IN và TAKEAWAY, FE phân tab theo orderType
+            messagingTemplate.convertAndSend("/topic/pos/orders", payload);
+
         } catch (Exception e) {
             log.error("Error parsing order.created payload", e);
         }
@@ -62,17 +70,25 @@ public class NotificationConsumerService {
     @KafkaListener(topics = "order.paid", groupId = "${spring.kafka.consumer.group-id}")
     public void consumeOrderPaid(String payload) {
         log.info("Received order.paid: {}", payload);
-        // Báo cho KDS hoặc khách là bàn đã thanh toán
+        // Báo cho KDS hoặc khách là đơn đã thanh toán
         messagingTemplate.convertAndSend("/topic/orders/paid", payload);
-        
+
         try {
             JsonNode node = objectMapper.readTree(payload);
+
+            // Bắn cho client theo session
             if (node.has("sessionToken") && !node.get("sessionToken").isNull()) {
                 String sessionToken = node.get("sessionToken").asText();
-                messagingTemplate.convertAndSend("/topic/sessions/" + sessionToken + "/paid", payload);
+                if (!sessionToken.isBlank()) {
+                    messagingTemplate.convertAndSend("/topic/sessions/" + sessionToken + "/paid", payload);
+                }
             }
-            // Bắn lên topic tổng cho POS cập nhật sơ đồ bàn (trạng thái bàn -> FREE)
+
+            // Backward compat: POS sơ đồ bàn
             messagingTemplate.convertAndSend("/topic/pos/tables", payload);
+            // Topic mới: bao gồm cả TAKEAWAY
+            messagingTemplate.convertAndSend("/topic/pos/orders", payload);
+
         } catch (Exception e) {
             log.error("Error parsing order.paid payload", e);
         }
@@ -93,7 +109,7 @@ public class NotificationConsumerService {
             // Lọc riêng cho Server: Chỉ bắn vào topic khay đồ nếu trạng thái là DONE, COMPLETED hoặc SERVED
             if (node.has("status")) {
                 String status = node.get("status").asText();
-                if ("DONE".equals(status) || "COMPLETED".equals(status) || "SERVED".equals(status)) {
+                if ("DONE".equals(status) || "COMPLETED".equals(status) || "SERVED".equals(status) || "DELIVERING".equals(status)) {
                     messagingTemplate.convertAndSend("/topic/server/deliveries", payload);
                 }
             }
@@ -113,12 +129,20 @@ public class NotificationConsumerService {
         log.info("Received order.status_updated: {}", payload);
         try {
             JsonNode node = objectMapper.readTree(payload);
-            if (node.has("sessionToken")) {
+
+            // Bắn cho client theo session
+            if (node.has("sessionToken") && !node.get("sessionToken").isNull()) {
                 String sessionToken = node.get("sessionToken").asText();
-                messagingTemplate.convertAndSend("/topic/sessions/" + sessionToken + "/orders", payload);
+                if (!sessionToken.isBlank()) {
+                    messagingTemplate.convertAndSend("/topic/sessions/" + sessionToken + "/orders", payload);
+                }
             }
-            // Bắn lên topic tổng cho POS cập nhật sơ đồ bàn (luôn bắn khi đổi trạng thái đơn)
+
+            // Backward compat: POS sơ đồ bàn
             messagingTemplate.convertAndSend("/topic/pos/tables", payload);
+            // Topic mới: cả DINE_IN lẫn TAKEAWAY
+            messagingTemplate.convertAndSend("/topic/pos/orders", payload);
+
         } catch (Exception e) {
             log.error("Error parsing order.status_updated payload", e);
         }
@@ -153,7 +177,7 @@ public class NotificationConsumerService {
         messagingTemplate.convertAndSend("/topic/server/alerts", payload);
         // Cũng push xuống zone-specific channel nếu có
         try {
-            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(payload);
+            JsonNode node = objectMapper.readTree(payload);
             if (node.has("zone") && !node.get("zone").isNull()) {
                 String zone = node.get("zone").asText();
                 messagingTemplate.convertAndSend("/topic/server/zone/" + zone, payload);
@@ -207,15 +231,32 @@ public class NotificationConsumerService {
         log.warn("Received cancel.alert: {}", payload);
         // Push tới tất cả Server App đang online
         messagingTemplate.convertAndSend("/topic/server/alerts", payload);
-        // Cũng push vào channel zone nếu biết
+        // Luôn push vào channel POS updates — cả DINE_IN lẫn TAKEAWAY
+        messagingTemplate.convertAndSend("/topic/pos/updates", payload);
+        // Cũng push vào zone-specific nếu biết tableNumber
         try {
-            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(payload);
+            JsonNode node = objectMapper.readTree(payload);
             if (node.has("tableNumber") && !node.get("tableNumber").isNull()) {
-                // Push vào kênh chung để POS biết có hủy khẩn
-                messagingTemplate.convertAndSend("/topic/pos/updates", payload);
+                String tableNumber = node.get("tableNumber").asText();
+                if (!tableNumber.isBlank()) {
+                    messagingTemplate.convertAndSend("/topic/pos/tables/" + tableNumber + "/alerts", payload);
+                }
             }
         } catch (Exception e) {
             log.error("Error parsing cancel.alert payload", e);
         }
+    }
+
+    /**
+     * Cảnh báo Bếp ngâm món quá lâu.
+     * Bắn về POS để quản lý/thu ngân biết.
+     */
+    @KafkaListener(topics = "kitchen.delay.alert", groupId = "${spring.kafka.consumer.group-id}")
+    public void consumeKitchenDelayAlert(String payload) {
+        log.warn("Received kitchen.delay.alert: {}", payload);
+        // Bắn cho POS updates để thu ngân nhận được pop-up cảnh báo
+        messagingTemplate.convertAndSend("/topic/pos/updates", payload);
+        // Bắn luôn vào staff/calls để hiển thị trong chuông thông báo
+        messagingTemplate.convertAndSend("/topic/staff/calls", payload);
     }
 }

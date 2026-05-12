@@ -20,4 +20,8 @@ public class TicketUpdatedEvent {
     private Integer tableNumber;
     private String type; // TICKET hoặc ITEM
     private LocalDateTime updatedAt;
+    /** "DINE_IN", "TAKEAWAY", "DELIVERY" */
+    private String orderType;
+    /** VD: "Bàn 12" hoặc "Mang Đi #001a" */
+    private String orderIdentifier;
 }

@@ -30,6 +30,11 @@ import java.util.stream.Collectors;
 import com.fnb.menu.dto.response.PromotionResponse;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.fnb.common.util.PricingEngine;
+import com.fnb.menu.dto.event.MenuUpdatedEvent;
+import com.fnb.menu.entity.Promotion;
+import com.fnb.menu.repository.PromotionRepository;
+import org.springframework.context.ApplicationEventPublisher;
 
 @Slf4j
 @Service
@@ -40,9 +45,9 @@ public class MenuItemService {
     private final CategoryRepository categoryRepository;
     private final ItemOptionRepository itemOptionRepository;
     private final CloudinaryService cloudinaryService;
-    private final org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    private final com.fnb.menu.repository.PromotionRepository promotionRepository;
+    private final PromotionRepository promotionRepository;
 
     // ─── Public: customer đọc ────────────────────────────────────────────
 
@@ -111,7 +116,6 @@ public class MenuItemService {
                 .description(request.getDescription())
                 .imageUrl(request.getImageUrl())
                 .basePrice(request.getBasePrice())
-                .salePrice(request.getSalePrice())
                 .station(request.getStation())
                 .isFeatured(request.isFeatured())
                 .isAvailable(request.isAvailable())
@@ -183,7 +187,6 @@ public class MenuItemService {
         }
 
         item.setBasePrice(request.getBasePrice());
-        item.setSalePrice(request.getSalePrice());
         item.setStation(request.getStation());
         item.setFeatured(request.isFeatured());
         item.setAvailable(request.isAvailable());
@@ -202,12 +205,12 @@ public class MenuItemService {
         item.setAvailable(!item.isAvailable());
         MenuItem saved = menuItemRepository.save(item);
         
-        applicationEventPublisher.publishEvent(com.fnb.menu.dto.event.MenuUpdatedEvent.builder()
+        applicationEventPublisher.publishEvent(MenuUpdatedEvent.builder()
                 .itemId(saved.getId())
                 .type("ITEM")
                 .isAvailable(saved.isAvailable())
                 .isActive(saved.isActive())
-                .updatedAt(java.time.LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build());
                 
         return toResponse(saved);
@@ -225,12 +228,12 @@ public class MenuItemService {
         item.setActive(false);  // soft delete đầy đủ: ẩn khỏi mọi query lọc theo isActive
         menuItemRepository.save(item);
         
-        applicationEventPublisher.publishEvent(com.fnb.menu.dto.event.MenuUpdatedEvent.builder()
+        applicationEventPublisher.publishEvent(MenuUpdatedEvent.builder()
                 .itemId(item.getId())
                 .type("ITEM")
                 .isAvailable(false)
                 .isActive(false)
-                .updatedAt(java.time.LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build());
     }
 
@@ -246,12 +249,12 @@ public class MenuItemService {
         item.setActive(true);
         MenuItem saved = menuItemRepository.save(item);
         
-        applicationEventPublisher.publishEvent(com.fnb.menu.dto.event.MenuUpdatedEvent.builder()
+        applicationEventPublisher.publishEvent(MenuUpdatedEvent.builder()
                 .itemId(saved.getId())
                 .type("ITEM")
                 .isAvailable(true)
                 .isActive(true)
-                .updatedAt(java.time.LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build());
                 
         return toResponse(saved);
@@ -352,12 +355,12 @@ public class MenuItemService {
         option.setAvailable(!option.isAvailable());
         itemOptionRepository.save(option);
         
-        applicationEventPublisher.publishEvent(com.fnb.menu.dto.event.MenuUpdatedEvent.builder()
+        applicationEventPublisher.publishEvent(MenuUpdatedEvent.builder()
                 .itemId(itemId)
                 .optionId(optionId)
                 .type("OPTION")
                 .isAvailable(option.isAvailable())
-                .updatedAt(java.time.LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build());
                 
         // reload full item với options để trả về response đầy đủ
@@ -386,29 +389,29 @@ public class MenuItemService {
                 .toList();
 
         // --- Xử lý Stateless Dynamic Pricing ---
-        BigDecimal finalSalePrice = item.getSalePrice();
-        java.time.LocalDateTime startAt = item.getSaleStartAt();
-        java.time.LocalDateTime endAt = item.getSaleEndAt();
+        BigDecimal finalSalePrice = null;
+        LocalDateTime startAt = null;
+        LocalDateTime endAt = null;
         List<PromotionResponse.ScheduleResponse> schedules = null;
         
         try {
-            LocalDateTime now = java.time.LocalDateTime.now();
-            List<com.fnb.menu.entity.Promotion> allProductPromos = promotionRepository.findActiveByScope("PRODUCT", now);
+            LocalDateTime now = LocalDateTime.now();
+            List<Promotion> allProductPromos = promotionRepository.findActiveByScope("PRODUCT", now);
             
             // Lọc theo khung giờ lặp lại (Happy Hour)
-            List<com.fnb.menu.entity.Promotion> productPromos = allProductPromos.stream()
+            List<Promotion> productPromos = allProductPromos.stream()
                 .filter(p -> isWithinSchedule(p, now))
                 .toList();
 
-            List<com.fnb.menu.entity.Promotion> itemPromos = productPromos.stream()
-                .filter(p -> com.fnb.common.util.PricingEngine.isApplicable(p.getTargets(), item.getId(), item.getCategory().getId()))
+            List<Promotion> itemPromos = productPromos.stream()
+                .filter(p -> PricingEngine.isApplicable(p.getTargets(), item.getId(), item.getCategory().getId()))
                 .toList();
 
             if (!itemPromos.isEmpty()) {
                 BigDecimal basePrice = item.getBasePrice() != null ? item.getBasePrice() : BigDecimal.ZERO;
                 
-                var bestResult = com.fnb.common.util.PricingEngine.selectBestPromotion(itemPromos, basePrice);
-                com.fnb.menu.entity.Promotion bestPromo = bestResult.getPromotion();
+                var bestResult = PricingEngine.selectBestPromotion(itemPromos, basePrice);
+                Promotion bestPromo = bestResult.getPromotion();
                 BigDecimal bestDiscount = bestResult.getDiscountAmount();
 
                 if (bestPromo != null && bestDiscount.compareTo(BigDecimal.ZERO) >= 0) {
@@ -447,7 +450,7 @@ public class MenuItemService {
                 .build();
     }
 
-    private boolean isWithinSchedule(com.fnb.menu.entity.Promotion promotion, java.time.LocalDateTime now) {
+    private boolean isWithinSchedule(Promotion promotion, LocalDateTime now) {
         if (promotion.getSchedules() == null || promotion.getSchedules().isEmpty()) return true;
         int todayDow = now.getDayOfWeek().getValue() % 7; // Mon=1, Sun=7 -> map Sun=0
         return promotion.getSchedules().stream().anyMatch(s ->

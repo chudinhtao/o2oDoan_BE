@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Comparator;
 
 /**
  * Bo cong cu Tai Chinh cho Admin AI — Phase 2.3.
@@ -118,11 +119,11 @@ public class AdminFinanceTools {
             // Tim ngay AOV cao nhat / thap nhat
             var maxDay = rows.stream()
                     .filter(r -> r.totalOrders() > 0)
-                    .max(java.util.Comparator.comparing(r ->
+                    .max(Comparator.comparing(r ->
                             r.revenue().divide(BigDecimal.valueOf(r.totalOrders()), 0, RoundingMode.HALF_UP)));
             var minDay = rows.stream()
                     .filter(r -> r.totalOrders() > 0)
-                    .min(java.util.Comparator.comparing(r ->
+                    .min(Comparator.comparing(r ->
                             r.revenue().divide(BigDecimal.valueOf(r.totalOrders()), 0, RoundingMode.HALF_UP)));
 
             StringBuilder sb = new StringBuilder();
@@ -190,7 +191,7 @@ public class AdminFinanceTools {
             // Khuyen nghi chien luoc kenh
             sb.append("\n💡 NHAN DINH KENH:\n");
             var dominantSource = res.getData().stream()
-                    .max(java.util.Comparator.comparingDouble(ReportFeignClient.SourceRow::percentage));
+                    .max(Comparator.comparingDouble(ReportFeignClient.SourceRow::percentage));
             dominantSource.ifPresent(src -> {
                 sb.append("• Kenh chu dao: ").append(src.source()).append(" (").append(src.percentage()).append("%)\n");
                 if (src.percentage() > 80) {

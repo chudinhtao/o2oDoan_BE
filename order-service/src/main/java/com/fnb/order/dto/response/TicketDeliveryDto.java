@@ -33,5 +33,6 @@ public class TicketDeliveryDto {
         private BigDecimal unitPrice;
         private String note;
         private boolean isUrgent;    // true nếu chờ > 60s (HOT) hoặc > 0s (COLD)
+        private Boolean deliveryAlertSent;
     }
 }

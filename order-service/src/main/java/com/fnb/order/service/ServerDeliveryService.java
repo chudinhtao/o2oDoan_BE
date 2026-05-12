@@ -6,6 +6,7 @@ import com.fnb.order.dto.event.StaffCallAcceptedEvent;
 import com.fnb.order.dto.response.ServerKpiResponse;
 import com.fnb.order.dto.response.StaffCallResponse;
 import com.fnb.order.dto.response.TicketDeliveryDto;
+import com.fnb.order.entity.Order;
 import com.fnb.order.entity.OrderTicketItem;
 import com.fnb.order.entity.StaffCall;
 import com.fnb.order.entity.TableInfo;
@@ -25,6 +26,9 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -52,31 +56,70 @@ public class ServerDeliveryService {
      * Group by tableNumber. Ưu tiên hiển thị bàn có món urgent lên trước.
      */
     @Transactional(readOnly = true)
-    public List<TicketDeliveryDto> getPendingDeliveries(List<String> zones) {
+    public List<TicketDeliveryDto> getPendingDeliveries(List<String> zones, UUID serverId) {
         // Chuyển zones list thành chuỗi PostgreSQL array literal: {Tầng 1,Tầng 2}
         String zonesParam = buildZonesParam(zones);
 
         List<OrderTicketItem> items = (zonesParam == null)
-                ? ticketItemRepository.findPendingDeliveries()
-                : ticketItemRepository.findPendingDeliveriesByZones(zonesParam);
+                ? ticketItemRepository.findPendingDeliveries(serverId)
+                : ticketItemRepository.findPendingDeliveriesByZones(zonesParam, serverId);
 
-        // Group items by table (thông qua ticket -> order -> table trực tiếp)
-        Map<Integer, List<OrderTicketItem>> groupedByTable = items.stream()
+        // Group items by Order (hỗ trợ cả Bàn và Takeaway)
+        Map<UUID, List<OrderTicketItem>> groupedByOrder = items.stream()
                 .filter(item -> item.getTicket() != null
-                        && item.getTicket().getOrder() != null
-                        && item.getTicket().getOrder().getTable() != null)
+                        && item.getTicket().getOrder() != null)
                 .collect(Collectors.groupingBy(item ->
-                        item.getTicket().getOrder().getTable().getNumber()
+                        item.getTicket().getOrder().getId()
                 ));
 
         LocalDateTime now = LocalDateTime.now();
-        return groupedByTable.entrySet().stream()
-                .map(e -> buildDeliveryDto(e.getKey(), e.getValue(), now))
+        return groupedByOrder.values().stream()
+                .map(orderItems -> buildDeliveryDto(orderItems, now))
                 .filter(dto -> dto != null && dto.getItems() != null && !dto.getItems().isEmpty())
                 // Bàn có món urgent (cứu viện đỏ) lên trước
                 .sorted(Comparator.comparing(dto -> dto.getItems().stream()
                         .anyMatch(TicketDeliveryDto.DeliveryItem::isUrgent) ? 0 : 1))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Server bấm "Nhận bưng": Đổi trạng thái từ DONE -> DELIVERING.
+     * Gán người bưng là serverId.
+     */
+    @Transactional
+    public int claimDelivery(List<UUID> itemIds, UUID serverId) {
+        int updated = ticketItemRepository.markAsDelivering(itemIds, serverId);
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Không thể nhận bưng. Có thể nhân viên khác đã nhận hoặc món không còn ở trạng thái chờ bưng.");
+        }
+        log.info("Server {}: Đã NHẬN BƯNG {} món", serverId, updated);
+        // Bắn event để các server khác cập nhật UI
+        ticketItemRepository.findByIdIn(itemIds).forEach(item ->
+                kafkaTemplate.send("ticket.updated", item.getId().toString(),
+                        buildServedEvent(item)) // Dùng chung buildServedEvent gửi type = ITEM, status = DELIVERING
+        );
+        return updated;
+    }
+
+    /**
+     * Server bấm "Bỏ nhận": Đổi trạng thái từ DELIVERING -> DONE.
+     * Xóa gán người bưng.
+     */
+    @Transactional
+    public int unclaimDelivery(List<UUID> itemIds, UUID serverId) {
+        int updated = ticketItemRepository.unclaimDelivery(itemIds, serverId);
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Không thể bỏ nhận bưng. Có thể món đã được bưng hoặc không thuộc quyền của bạn.");
+        }
+        log.info("Server {}: Đã BỎ NHẬN BƯNG {} món", serverId, updated);
+        // Bắn event để các server khác thấy lại món trên khay đồ chung
+        ticketItemRepository.findByIdIn(itemIds).forEach(item ->
+                kafkaTemplate.send("ticket.updated", item.getId().toString(),
+                        buildServedEvent(item))
+        );
+        return updated;
     }
 
     /**
@@ -97,6 +140,41 @@ public class ServerDeliveryService {
                         buildServedEvent(item))
         );
         return updated;
+    }
+
+    /**
+     * Thu ngân (POS) bấm "Đã giao cho khách" đối với đơn Takeaway.
+     * Cập nhật tất cả các món DONE/COMPLETED của Session thành SERVED.
+     */
+    @Transactional
+    public int serveTakeawaySession(UUID sessionId, UUID cashierId) {
+        LocalDateTime now = LocalDateTime.now();
+        List<OrderTicketItem> doneItems = ticketItemRepository.findDoneItemsBySessionId(sessionId);
+        if (doneItems.isEmpty()) {
+            log.warn("serveTakeawaySession: Không có món nào DONE cho session={}", sessionId);
+            return 0;
+        }
+
+        List<UUID> itemIds = doneItems.stream().map(OrderTicketItem::getId).collect(Collectors.toList());
+        
+        // Vì các món Takeaway không trải qua trạng thái DELIVERING nên dùng markAsDelivering trick hoặc viết query mới.
+        // Khoan, hàm markAsServed cũ yêu cầu status phải là DELIVERING.
+        // Nên ta sẽ lặp qua save() thủ công hoặc cập nhật query. Do list nhỏ, ta lặp qua save:
+        for (OrderTicketItem item : doneItems) {
+            item.setStatus("SERVED");
+            item.setServedAt(now);
+            item.setServedBy(cashierId);
+        }
+        ticketItemRepository.saveAll(doneItems);
+
+        log.info("Thu ngân {}: Đã giao {} món mang về cho Session {}", cashierId, doneItems.size(), sessionId);
+        
+        // Bắn event Real-time cho màn hình Khách hàng
+        for (OrderTicketItem item : doneItems) {
+            kafkaTemplate.send("ticket.updated", item.getId().toString(), buildServedEvent(item));
+        }
+        
+        return doneItems.size();
     }
 
     /**
@@ -187,7 +265,7 @@ public class ServerDeliveryService {
         staffCallRepository.save(call);
 
         // Bắn sự kiện qua Kafka để các màn hình tự động làm mới ngay lập tức
-        java.util.Map<String, Object> event = new java.util.HashMap<>();
+        Map<String, Object> event = new HashMap<>();
         event.put("callId", call.getId());
         event.put("status", "RESOLVED");
         event.put("resolvedBy", serverId);
@@ -270,30 +348,24 @@ public class ServerDeliveryService {
         return "{" + String.join(",", zones) + "}";
     }
 
-    private TicketDeliveryDto buildDeliveryDto(Integer tableNumber,
-                                               List<OrderTicketItem> items,
+    private TicketDeliveryDto buildDeliveryDto(List<OrderTicketItem> items,
                                                LocalDateTime now) {
-        TableInfo table = items.get(0).getTicket().getOrder().getTable();
-        String orderType = items.get(0).getTicket().getOrder().getOrderType();
+        Order order = items.get(0).getTicket().getOrder();
+        TableInfo table = order.getTable();
+        Integer tableNumber = table != null ? table.getNumber() : null;
+        String orderType = order.getOrderType();
         boolean isTakeawayOrDelivery = "TAKEAWAY".equals(orderType) || "DELIVERY".equals(orderType);
 
-        // 1. Check if ANY item on this table is SLA breached
-        boolean anySlaBreachedForTable = items.stream().anyMatch(item -> {
-            LocalDateTime readyTime = item.getCompletedAt() != null ? item.getCompletedAt() : item.getCreatedAt();
-            long waitSeconds = ChronoUnit.SECONDS.between(readyTime, now);
-            if ("HOT".equalsIgnoreCase(item.getStation()) || "KITCHEN".equalsIgnoreCase(item.getStation())) {
-                return waitSeconds >= 240;
-            } else {
-                return waitSeconds >= 120;
-            }
-        });
+        // Tối ưu 1: ẨN HOÀN TOÀN ĐƠN MANG VỀ (Takeaway) khỏi màn hình của Nhân viên phục vụ (Server).
+        // Phục vụ chỉ lo bưng bàn. Thu ngân sẽ lo Takeaway qua chuông báo StaffCall trên POS.
+        if (isTakeawayOrDelivery) {
+            return null; 
+        }
 
         List<TicketDeliveryDto.DeliveryItem> deliveryItems = items.stream()
                 .map(item -> {
                     LocalDateTime readyTime = item.getCompletedAt() != null ? item.getCompletedAt() : item.getCreatedAt();
                     long waitSeconds = ChronoUnit.SECONDS.between(readyTime, now);
-                    boolean hasActiveItems = item.getTicket().getItems().stream()
-                            .anyMatch(i -> "PENDING".equals(i.getStatus()) || "PREPARING".equals(i.getStatus()));
                             
                     // SLA Breached (Hết hạn ngâm đồ trên quầy)
                     boolean isSlaBreached = false;
@@ -303,20 +375,8 @@ public class ServerDeliveryService {
                         isSlaBreached = waitSeconds >= 120;
                     }
 
-                    boolean isReadyToServe;
-                    boolean isUrgent;
-
-                    if (isTakeawayOrDelivery) {
-                        // O2O Rule: Bắt buộc xong 100% mới báo lấy đồ. Bỏ qua thời gian ngâm.
-                        isReadyToServe = !hasActiveItems;
-                        isUrgent = false; // Đơn mang về ưu tiên hiển thị chờ shipper, không báo đỏ vội.
-                    } else {
-                        // Dine-in Rule: Được phép bưng khi đã xong cả mâm HOẶC có món trên bàn bị hết hạn ngâm đồ
-                        isReadyToServe = anySlaBreachedForTable || !hasActiveItems;
-                        isUrgent = isSlaBreached;
-                    }
-                    
-                    if (!isReadyToServe) return null; // Lọc bỏ ngay nếu chưa được phép bưng
+                    // Tối ưu 2: isUrgent chỉ áp dụng cho Dine-in, Takeaway không hụ còi
+                    boolean isUrgent = isTakeawayOrDelivery ? false : isSlaBreached;
 
                     return TicketDeliveryDto.DeliveryItem.builder()
                             .itemId(item.getId())
@@ -328,9 +388,9 @@ public class ServerDeliveryService {
                             .unitPrice(item.getUnitPrice())
                             .note(item.getNote())
                             .isUrgent(isUrgent)
+                            .deliveryAlertSent(item.getDeliveryAlertSent())
                             .build();
                 })
-                .filter(java.util.Objects::nonNull) // LỌC NHỮNG MÓN BỊ ẨN
                 .collect(Collectors.toList());
 
         if (deliveryItems.isEmpty()) {
@@ -351,6 +411,14 @@ public class ServerDeliveryService {
         event.put("status", item.getStatus());
         event.put("servedAt", item.getServedAt());
         event.put("type", "ITEM");
+        
+        if (item.getTicket() != null) {
+            event.put("ticketId", item.getTicket().getId());
+            if (item.getTicket().getOrder() != null && item.getTicket().getOrder().getSession() != null) {
+                event.put("sessionToken", item.getTicket().getOrder().getSession().getSessionToken());
+            }
+        }
+        
         return event;
     }
 

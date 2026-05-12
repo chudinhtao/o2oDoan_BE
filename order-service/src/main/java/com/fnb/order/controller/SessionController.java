@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
@@ -25,12 +26,12 @@ public class SessionController {
 
     @PostMapping("/open/manual/{tableId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    public ResponseEntity<ApiResponse<SessionResponse>> openSessionManual(@PathVariable java.util.UUID tableId) {
+    public ResponseEntity<ApiResponse<SessionResponse>> openSessionManual(@PathVariable UUID tableId) {
         return ResponseEntity.ok(ApiResponse.ok("Mở bàn thành công", sessionService.openSessionByTableId(tableId)));
     }
 
     @PostMapping("/open/takeaway")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'STAFF')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SERVER')")
     public ResponseEntity<ApiResponse<SessionResponse>> openTakeawaySession() {
         return ResponseEntity.ok(ApiResponse.ok("Tạo phiên mang đi thành công", sessionService.openTakeawaySession()));
     }
@@ -42,7 +43,7 @@ public class SessionController {
 
     @GetMapping("/active/{tableId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    public ResponseEntity<ApiResponse<SessionResponse>> getActiveSession(@PathVariable java.util.UUID tableId) {
+    public ResponseEntity<ApiResponse<SessionResponse>> getActiveSession(@PathVariable UUID tableId) {
         return ResponseEntity.ok(ApiResponse.ok(sessionService.getActiveSessionByTableId(tableId)));
     }
 

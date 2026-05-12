@@ -39,15 +39,6 @@ public class MenuItem {
     @Column(name = "base_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal basePrice;
 
-    @Column(name = "sale_price", precision = 12, scale = 2)
-    private BigDecimal salePrice;
-
-    @Column(name = "sale_start_at")
-    private LocalDateTime saleStartAt;
-
-    @Column(name = "sale_end_at")
-    private LocalDateTime saleEndAt;
-
     @Column(nullable = false, length = 20)
     private String station;         // HOT / COLD / DRINK
 

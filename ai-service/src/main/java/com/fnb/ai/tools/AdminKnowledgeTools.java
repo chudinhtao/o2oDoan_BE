@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Arrays;
 
 /**
  * Bo cong cu Tri thuc va Boi canh (Phase 3).
@@ -32,7 +33,7 @@ public class AdminKnowledgeTools {
         log.info("[KNOWLEDGE-TOOL] searchKnowledgeBase: {}", query);
         try {
             dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(query).content();
-            String vectorString = java.util.Arrays.toString(embedding.vector());
+            String vectorString = Arrays.toString(embedding.vector());
 
             String sql = """
                 SELECT title, content

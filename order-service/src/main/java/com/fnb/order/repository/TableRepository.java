@@ -13,6 +13,10 @@ import java.util.UUID;
 
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
+import com.fnb.order.dto.response.PosTableResponse;
+import com.fnb.order.entity.Order;
+import com.fnb.order.entity.TableSession;
+import org.springframework.data.jpa.repository.Modifying;
 
 public interface TableRepository extends JpaRepository<TableInfo, UUID> {
     Optional<TableInfo> findByQrToken(String qrToken);
@@ -46,7 +50,7 @@ public interface TableRepository extends JpaRepository<TableInfo, UUID> {
         SELECT new com.fnb.order.dto.response.PosTableResponse(
             t.id, t.number, t.name, t.status, t.capacity,
             s.id, s.sessionToken,
-            COALESCE(SUM(o.total), 0),
+            COALESCE(SUM(o.total), 0.0),
             s.openedAt,
             t.parentTableId,
             pt.number
@@ -59,21 +63,21 @@ public interface TableRepository extends JpaRepository<TableInfo, UUID> {
         GROUP BY t.id, t.number, t.name, t.status, t.capacity, s.id, s.sessionToken, s.openedAt, t.parentTableId, pt.number
         ORDER BY t.number ASC
     """)
-    java.util.List<com.fnb.order.dto.response.PosTableResponse> findAllForPos();
+    List<PosTableResponse> findAllForPos();
 
-    @org.springframework.data.jpa.repository.Modifying
+    @Modifying
     @Query("UPDATE TableInfo t SET t.status = 'FREE', t.parentTableId = null WHERE t.status != 'FREE'")
     int resetAllTablesToFree();
 
-    @org.springframework.data.jpa.repository.Modifying
+    @Modifying
     @Query("UPDATE TableInfo t SET t.status = 'FREE', t.parentTableId = null WHERE t.parentTableId = :parentId")
     int freeChildTables(@Param("parentId") UUID parentId);
 
-    @org.springframework.data.jpa.repository.Modifying
+    @Modifying
     @Query("UPDATE TableInfo t SET t.status = 'CLEANING', t.parentTableId = null WHERE t.parentTableId = :parentId")
     int cleanChildTables(@Param("parentId") UUID parentId);
 
-    @org.springframework.data.jpa.repository.Modifying
+    @Modifying
     @Query("UPDATE TableInfo t SET t.status = 'FREE' WHERE t.id IN (SELECT s.table.id FROM TableSession s WHERE s.status = 'ACTIVE' AND s.expiresAt < CURRENT_TIMESTAMP AND NOT EXISTS (SELECT o FROM Order o WHERE o.session = s AND o.status IN ('OPEN', 'PAYMENT_REQUESTED') AND o.total > 0))")
     int resetTablesForExpiredSessions();
 }

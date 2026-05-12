@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.util.UUID;
+import com.fnb.common.dto.IBundleItem;
 
 @Entity
 @Table(name = "promotion_bundle_items", schema = "menu")
@@ -11,7 +12,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PromotionBundleItem implements com.fnb.common.dto.IBundleItem {
+public class PromotionBundleItem implements IBundleItem {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

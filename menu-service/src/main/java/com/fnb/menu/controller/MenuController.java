@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import java.math.BigDecimal;
 
 /**
  * PUBLIC endpoints — không cần JWT (khách hàng đọc menu).
@@ -38,7 +39,7 @@ public class MenuController {
             @RequestParam(required = false) UUID categoryId,
             @RequestParam(defaultValue = "false") boolean featured,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) java.math.BigDecimal maxPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 

@@ -10,6 +10,12 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 
 /**
  * [PHASE 4.3 — Level 2] Safe Text-to-SQL Tools.
@@ -88,18 +94,18 @@ public class AdminSqlTools {
         String safeSql = enforceLimitClause(cleanSql);
 
         try {
-            return jdbc.execute((java.sql.Connection conn) -> {
-                try (java.sql.Statement stmt = conn.createStatement()) {
+            return jdbc.execute((Connection conn) -> {
+                try (Statement stmt = conn.createStatement()) {
                     stmt.setMaxRows(20);         
                     stmt.setQueryTimeout(5);     
                     
-                    try (java.sql.ResultSet rs = stmt.executeQuery(safeSql)) {
-                        java.sql.ResultSetMetaData rsmd = rs.getMetaData();
+                    try (ResultSet rs = stmt.executeQuery(safeSql)) {
+                        ResultSetMetaData rsmd = rs.getMetaData();
                         int columnCount = rsmd.getColumnCount();
                         
-                        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+                        List<Map<String, Object>> rows = new ArrayList<>();
                         while (rs.next()) {
-                            Map<String, Object> row = new java.util.LinkedHashMap<>();
+                            Map<String, Object> row = new LinkedHashMap<>();
                             for (int i = 1; i <= columnCount; i++) {
                                 row.put(rsmd.getColumnName(i), rs.getObject(i));
                             }

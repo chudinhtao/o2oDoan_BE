@@ -21,4 +21,7 @@ public class OrderTicketItemResponse {
     private String station;
     private LocalDateTime createdAt;
     private List<OrderItemOptionResponse> options;
+    private Boolean isAlertSent;
+    private Boolean kitchenAlertSent;
+    private Boolean deliveryAlertSent;
 }

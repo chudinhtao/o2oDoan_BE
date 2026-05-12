@@ -10,9 +10,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import com.fnb.ai.feign.MenuFeignClient;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
  * Bộ công cụ (Tools) cho Customer AI.
@@ -26,7 +30,7 @@ public class CustomerAiTools {
 
     private final JdbcTemplate jdbc;
     private final OrderFeignClient orderFeignClient;
-    private final com.fnb.ai.feign.MenuFeignClient menuFeignClient;
+    private final MenuFeignClient menuFeignClient;
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
 
     // ─── MENU TOOLS ─────────────────────────────────────────────────────────
@@ -36,20 +40,20 @@ public class CustomerAiTools {
     public String searchMenu(String keyword) {
         log.debug("[TOOL] searchMenu: keyword={}", keyword);
 
-        List<UUID> ids = new java.util.ArrayList<>();
+        List<UUID> ids = new ArrayList<>();
         try {
             // 1. Dùng EmbeddingModel tạo vector cho keyword
             dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(keyword).content();
-            String vectorString = java.util.Arrays.toString(embedding.vector());
+            String vectorString = Arrays.toString(embedding.vector());
 
-            // 2. Query dùng pgvector `<->` để tìm món ăn có ý nghĩa tương đồng nhất
+            // 2. Query dùng pgvector `<=>` (cosine distance) để tận dụng HNSW index
             String sql = """
                 SELECT mi.id
                 FROM menu.menu_items mi
                 WHERE mi.is_active = true
                   AND mi.is_available = true
                   AND mi.embedding IS NOT NULL
-                ORDER BY mi.embedding <-> ?::vector
+                ORDER BY mi.embedding <=> ?::vector
                 LIMIT 5
                 """;
 
@@ -86,6 +90,7 @@ public class CustomerAiTools {
         String sql = """
             SELECT id, name, description
             FROM menu.categories
+            WHERE is_active = true
             ORDER BY display_order ASC
             """;
         List<Map<String, Object>> rows = jdbc.queryForList(sql);
@@ -117,7 +122,7 @@ public class CustomerAiTools {
     public String getItemOptions(String itemId) {
         log.debug("[TOOL] getItemOptions: itemId={}", itemId);
         try {
-            java.util.UUID.fromString(itemId);
+            UUID.fromString(itemId);
         } catch (IllegalArgumentException e) {
             return "LỖI TỪ HỆ THỐNG: itemId không đúng định dạng UUID. Vui lòng gọi tool searchMenu() trước để tìm ID chính xác của món ăn, sau đó mới gọi tool này.";
         }
@@ -189,14 +194,14 @@ public class CustomerAiTools {
                         sb.append("  Mức giảm: ").append(promo.discountValue()).append("PERCENT".equals(promo.discountType()) ? "% trên tổng giá trị của bộ Combo này" : "đ trừ vào tổng giá trị của bộ Combo này");
                     }
 
-                    if ("PERCENT".equals(promo.discountType()) && promo.maxDiscount() != null && promo.maxDiscount().compareTo(java.math.BigDecimal.ZERO) > 0) {
+                    if ("PERCENT".equals(promo.discountType()) && promo.maxDiscount() != null && promo.maxDiscount().compareTo(BigDecimal.ZERO) > 0) {
                         sb.append(" (Tối đa ").append(promo.maxDiscount()).append("đ)");
                     }
                     sb.append("\n");
 
                     // Requirement
                     if (promo.requirement() != null) {
-                        if (promo.requirement().minOrderAmount() != null && promo.requirement().minOrderAmount().compareTo(java.math.BigDecimal.ZERO) > 0) {
+                        if (promo.requirement().minOrderAmount() != null && promo.requirement().minOrderAmount().compareTo(BigDecimal.ZERO) > 0) {
                             sb.append("  Điều kiện: Đơn tối thiểu ").append(promo.requirement().minOrderAmount()).append("đ\n");
                         }
                         if (promo.requirement().minQuantity() > 0) {

@@ -5,11 +5,13 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -26,15 +28,23 @@ import java.util.List;
 /**
  * GlobalFilter — chạy trước MỌI request.
  * 1. Kiểm tra nếu route là public → skip
- * 2. Extract Bearer token → validate JWT
+ * 2. Extract Bearer token → check Blacklist (Redis) → validate JWT
  * 3. Forward X-User-Id + X-User-Role headers xuống downstream
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
+
+    private static final String BLACKLIST_PREFIX = "auth:blacklist:";
 
     @Value("${jwt.secret}")
     private String jwtSecret;
+	
+    @Value("${internal.secret}")
+    private String internalSecret;
+
+    private final ReactiveStringRedisTemplate redisTemplate;
 
     // Danh sách paths không cần JWT
     private static final List<String> PUBLIC_PATHS = List.of(
@@ -43,17 +53,15 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "/api/menu/**",
             "/api/promotions/**",
             "/api/orders/cart/**",
-            "/api/sessions/open",
             "/api/sessions/*",
             "/api/orders/tickets/**",
-            "/api/orders/session/**",    // Thêm route cho QR menu get order
-            "/api/orders/request-payment", // Yêu cầu thanh toán từ customer app
-            "/api/orders/*/checkout", // NEW: Checkout public
-            "/api/staff-calls/**",       // Customer gọi nhân viên
+            "/api/orders/session/**",
+            "/api/orders/request-payment",
+            "/api/staff-calls/**",
             "/api/payments/**",
             "/api/webhooks/**",
-            "/api/customer/ai/**",       // AI Assistant cho Customer (dùng X-Session-Token)
-            "/ws/**",                 // WebSocket — auth riêng
+            "/api/customer/ai/**",
+            "/ws/**",
             "/actuator/**"
     );
 
@@ -66,46 +74,63 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String path = exchange.getRequest().getURI().getPath();
-
+        String path       = exchange.getRequest().getURI().getPath();
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
 
-        // NẾU KHÔNG CÓ TOKEN
+        // ── BƯỚC 1: Public paths → luôn forward, bất kể token tình trạng nào ──
+        // Ví dụ: customer có JWT hết hạn vẫn được xem menu, không bị 401
+        if (isPublicPath(path)) {
+            log.debug("Public path [{}] — forwarding with internal secret only", path);
+            ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                    .header("X-Internal-Secret", internalSecret)
+                    // Xóa Authorization header để downstream không cần xử lý JWT
+                    .headers(h -> h.remove(HttpHeaders.AUTHORIZATION))
+                    .build();
+            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+        }
+
+        // ── BƯỚC 2: Protected paths → bắt buộc có Bearer token ──
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            if (isPublicPath(path)) {
-                return chain.filter(exchange);
-            }
             return unauthorized(exchange.getResponse(), "Missing or invalid Authorization header");
         }
 
         String token = authHeader.substring(7);
 
-        try {
-            Claims claims = validateAndExtract(token);
-            String userId = claims.get("userId", String.class);
-            String role   = claims.get("role", String.class);
+        // ── BƯỚC 3: Kiểm tra Blacklist trong Redis ──
+        return redisTemplate.hasKey(BLACKLIST_PREFIX + token)
+                .flatMap(isBlacklisted -> {
+                    if (Boolean.TRUE.equals(isBlacklisted)) {
+                        log.warn("Blacklisted token used — path={}", path);
+                        return unauthorized(exchange.getResponse(), "Token has been revoked");
+                    }
 
-            // Forward headers xuống downstream services
-            ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                    .header("X-User-Id", userId != null ? userId : "")
-                    .header("X-User-Role", role != null ? role : "")
-                    .build();
+                    // ── BƯỚC 4: Validate JWT → inject user context xuống downstream ──
+                    try {
+                        Claims claims = validateAndExtract(token);
+                        String userId = claims.get("userId", String.class);
+                        String role   = claims.get("role", String.class);
 
-            log.debug("JWT OK — userId={}, role={}, path={}", userId, role, path);
-            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                        ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                                .header("X-User-Id",         userId != null ? userId : "")
+                                .header("X-User-Role",       role   != null ? role   : "")
+                                .header("X-Internal-Secret", internalSecret)
+                                .build();
 
-        } catch (ExpiredJwtException e) {
-            return unauthorized(exchange.getResponse(), "Token expired");
-        } catch (JwtException e) {
-            return unauthorized(exchange.getResponse(), "Invalid token");
-        }
+                        log.debug("JWT OK — userId={}, role={}, path={}", userId, role, path);
+                        return chain.filter(exchange.mutate().request(mutatedRequest).build());
+
+                    } catch (ExpiredJwtException e) {
+                        return unauthorized(exchange.getResponse(), "Token expired");
+                    } catch (JwtException e) {
+                        return unauthorized(exchange.getResponse(), "Invalid token");
+                    }
+                });
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
 
     private boolean isPublicPath(String path) {
-        return PUBLIC_PATHS.stream()
-                .anyMatch(pattern -> pathMatcher.match(pattern, path));
+        return PUBLIC_PATHS.stream().anyMatch(p -> pathMatcher.match(p, path));
     }
 
     private Claims validateAndExtract(String token) {

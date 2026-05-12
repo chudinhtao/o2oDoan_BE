@@ -1,7 +1,9 @@
 package com.fnb.auth.config;
 
 import com.fnb.auth.security.JwtDirectFilter;
+import com.fnb.common.filter.InternalSecretFilter;
 import com.fnb.common.security.GatewayHeaderFilter;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,8 +26,27 @@ public class SecurityConfig {
     private final JwtDirectFilter jwtDirectFilter;
 
     @Bean
+    public InternalSecretFilter internalSecretFilter() {
+        return new InternalSecretFilter();
+    }
+
+    @Bean
     public GatewayHeaderFilter gatewayHeaderFilter() {
         return new GatewayHeaderFilter();
+    }
+
+    @Bean
+    public FilterRegistrationBean<InternalSecretFilter> internalSecretFilterRegistration(InternalSecretFilter filter) {
+        FilterRegistrationBean<InternalSecretFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
+
+    @Bean
+    public FilterRegistrationBean<GatewayHeaderFilter> gatewayHeaderFilterRegistration(GatewayHeaderFilter filter) {
+        FilterRegistrationBean<GatewayHeaderFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
     }
 
     @Bean
@@ -38,9 +59,11 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated()
                 )
-                // 1. GatewayHeaderFilter: đọc X-User-Id từ Gateway header
+                // 1. Chặn request không qua Gateway
+                .addFilterBefore(internalSecretFilter(), UsernamePasswordAuthenticationFilter.class)
+                // 2. Cố gắng lấy X-User-Id từ Gateway (dùng chung)
                 .addFilterBefore(gatewayHeaderFilter(), UsernamePasswordAuthenticationFilter.class)
-                // 2. JwtDirectFilter: fallback parse Bearer JWT khi gọi thẳng (không qua Gateway)
+                // 3. Nếu Gateway chưa cấp quyền, tự parse JWT
                 .addFilterAfter(jwtDirectFilter, GatewayHeaderFilter.class)
                 .build();
     }

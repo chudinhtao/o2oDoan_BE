@@ -13,6 +13,14 @@ import org.springframework.format.annotation.DateTimeFormat;
 import java.time.LocalDateTime;
 import org.springframework.security.access.prepost.PreAuthorize;
 import com.fnb.common.dto.PageResponse;
+import com.fnb.order.dto.response.OrderResponse;
+import com.fnb.order.dto.response.PosTableResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.security.core.Authentication;
+import org.springframework.util.StringUtils;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -31,7 +39,7 @@ public class OrderController {
     }
 
     @GetMapping("/session")
-    public ApiResponse<com.fnb.order.dto.response.OrderResponse> getOrderForSession(
+    public ApiResponse<OrderResponse> getOrderForSession(
             @RequestHeader("X-Session-Token") String sessionToken) {
         return ApiResponse.ok(orderService.getOrderBySessionToken(sessionToken));
     }
@@ -39,8 +47,8 @@ public class OrderController {
     @PatchMapping("/session/items/{itemId}/cancel")
     public ApiResponse<String> cancelItemByCustomer(
             @RequestHeader("X-Session-Token") String sessionToken,
-            @PathVariable java.util.UUID itemId,
-            @RequestBody(required = false) java.util.Map<String, String> payload) {
+            @PathVariable UUID itemId,
+            @RequestBody(required = false) Map<String, String> payload) {
         String reason = payload != null ? payload.get("reason") : null;
         orderService.cancelItemByCustomer(sessionToken, itemId, reason);
         return ApiResponse.ok("Bạn đã huỷ món thành công.", null);
@@ -49,8 +57,8 @@ public class OrderController {
     @PatchMapping("/session/tickets/{ticketId}/cancel")
     public ApiResponse<String> cancelTicketByCustomer(
             @RequestHeader("X-Session-Token") String sessionToken,
-            @PathVariable java.util.UUID ticketId,
-            @RequestBody(required = false) java.util.Map<String, String> payload) {
+            @PathVariable UUID ticketId,
+            @RequestBody(required = false) Map<String, String> payload) {
         String reason = payload != null ? payload.get("reason") : null;
         orderService.cancelTicketByCustomer(sessionToken, ticketId, reason);
         return ApiResponse.ok("Bạn đã huỷ phiếu yêu cầu thành công.", null);
@@ -59,7 +67,7 @@ public class OrderController {
     @PostMapping("/request-payment")
     public ApiResponse<String> requestPayment(
             @RequestHeader("X-Session-Token") String sessionToken,
-            @RequestBody(required = false) java.util.Map<String, String> payload) {
+            @RequestBody(required = false) Map<String, String> payload) {
         String paymentMethod = (payload != null && payload.containsKey("paymentMethod")) 
                                 ? payload.get("paymentMethod").toUpperCase() 
                                 : "UNKNOWN";
@@ -70,31 +78,31 @@ public class OrderController {
     @PatchMapping("/session/promotion")
     public ApiResponse<String> applyPromotion(
             @RequestHeader("X-Session-Token") String sessionToken,
-            @RequestBody java.util.Map<String, String> payload) {
+            @RequestBody Map<String, String> payload) {
         String code = payload != null ? payload.get("code") : null;
         orderService.applyPromotion(sessionToken, code);
-        return ApiResponse.ok(org.springframework.util.StringUtils.hasText(code) ? "Áp dụng mã giảm giá thành công." : "Đã gỡ mã giảm giá.", null);
+        return ApiResponse.ok(StringUtils.hasText(code) ? "Áp dụng mã giảm giá thành công." : "Đã gỡ mã giảm giá.", null);
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<com.fnb.order.dto.response.OrderResponse> getOrderById(
-            @PathVariable java.util.UUID id) {
+    public ApiResponse<OrderResponse> getOrderById(
+            @PathVariable UUID id) {
         return ApiResponse.ok(orderService.getOrderById(id));
     }
 
     @PatchMapping("/{id}/promotion")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ApiResponse<String> applyPromotionPOS(
-            @PathVariable java.util.UUID id,
-            @RequestBody java.util.Map<String, String> payload) {
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> payload) {
         String code = payload != null ? payload.get("code") : null;
         orderService.applyPromotionById(id, code);
-        return ApiResponse.ok(org.springframework.util.StringUtils.hasText(code) ? "Áp dụng mã thành công." : "Đã gỡ mã.", null);
+        return ApiResponse.ok(StringUtils.hasText(code) ? "Áp dụng mã thành công." : "Đã gỡ mã.", null);
     }
 
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    public ApiResponse<PageResponse<com.fnb.order.dto.response.OrderResponse>> getOrderHistory(
+    public ApiResponse<PageResponse<OrderResponse>> getOrderHistory(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String search,
@@ -117,8 +125,8 @@ public class OrderController {
     @PostMapping("/{id}/checkout")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ApiResponse<String> checkoutOrder(
-            @PathVariable java.util.UUID id,
-            @RequestBody(required = false) java.util.Map<String, Object> payload,
+            @PathVariable UUID id,
+            @RequestBody(required = false) Map<String, Object> payload,
             @RequestHeader(value = "X-User-Id", required = false) String cashierIdStr) {
         
         boolean releaseTable = payload == null || !payload.containsKey("releaseTable") || (boolean) payload.get("releaseTable");
@@ -132,7 +140,7 @@ public class OrderController {
                 paymentDetail = (String) detail;
             } else {
                 try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    ObjectMapper mapper = new ObjectMapper();
                     paymentDetail = mapper.writeValueAsString(detail);
                 } catch (Exception e) {
                     paymentDetail = detail.toString(); 
@@ -140,7 +148,7 @@ public class OrderController {
             }
         }
 
-        java.util.UUID cashierId = cashierIdStr != null ? java.util.UUID.fromString(cashierIdStr) : null;
+        UUID cashierId = cashierIdStr != null ? UUID.fromString(cashierIdStr) : null;
         orderService.closeOrder(id, releaseTable, cashierId, paymentMethod, paymentDetail);
         
         return ApiResponse.ok("Dã chốt hóa đơn thành công" + (releaseTable ? " và giải phóng bàn" : " (giữ phiên bàn)"), null);
@@ -149,33 +157,33 @@ public class OrderController {
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ApiResponse<String> cancelOrder(
-            @PathVariable java.util.UUID id,
-            @RequestBody(required = false) java.util.Map<String, String> payload,
+            @PathVariable UUID id,
+            @RequestBody(required = false) Map<String, String> payload,
             @RequestHeader(value = "X-User-Id", required = false) String cancellerIdStr) {
         String reason = payload != null ? payload.get("reason") : null;
         String note = payload != null ? payload.get("note") : null;
-        java.util.UUID cancellerId = cancellerIdStr != null ? java.util.UUID.fromString(cancellerIdStr) : null;
+        UUID cancellerId = cancellerIdStr != null ? UUID.fromString(cancellerIdStr) : null;
         orderService.cancelOrder(id, reason, note, cancellerId);
         return ApiResponse.ok("Dã huỷ đơn hàng thành công", null);
     }
 
     @PatchMapping("/{id}/items/{itemId}/cancel")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'KITCHEN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'KITCHEN', 'SERVER')")
     public ApiResponse<String> cancelItem(
-            @PathVariable java.util.UUID id,
-            @PathVariable java.util.UUID itemId,
-            @RequestBody(required = false) java.util.Map<String, String> payload) {
+            @PathVariable UUID id,
+            @PathVariable UUID itemId,
+            @RequestBody(required = false) Map<String, String> payload) {
         String reason = payload != null ? payload.get("reason") : null;
         orderService.cancelItem(id, itemId, reason);
         return ApiResponse.ok("Đã huỷ món thành công", null);
     }
 
     @PatchMapping("/{id}/tickets/{ticketId}/cancel")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SERVER')")
     public ApiResponse<String> cancelTicket(
-            @PathVariable java.util.UUID id,
-            @PathVariable java.util.UUID ticketId,
-            @RequestBody(required = false) java.util.Map<String, String> payload) {
+            @PathVariable UUID id,
+            @PathVariable UUID ticketId,
+            @RequestBody(required = false) Map<String, String> payload) {
         String reason = payload != null ? payload.get("reason") : null;
         orderService.cancelTicket(id, ticketId, reason);
         return ApiResponse.ok("Đã huỷ phiếu yêu cầu thành công", null);
@@ -184,28 +192,17 @@ public class OrderController {
     @PatchMapping("/{id}/items/{itemId}/return")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ApiResponse<String> returnItem(
-            @PathVariable java.util.UUID id,
-            @PathVariable java.util.UUID itemId,
-            @RequestBody(required = false) java.util.Map<String, String> payload) {
+            @PathVariable UUID id,
+            @PathVariable UUID itemId,
+            @RequestBody(required = false) Map<String, String> payload) {
         String reason = payload != null ? payload.get("reason") : null;
         orderService.returnItem(id, itemId, reason);
         return ApiResponse.ok("Đã trả món và hoàn tiền thành công", null);
     }
 
-//    @PostMapping("/takeaway")
-//    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'STAFF')")
-//    public ApiResponse<String> createTakeawayOrder(
-//            @Valid @RequestBody com.fnb.order.dto.request.TakeawayOrderRequest request,
-//            org.springframework.security.core.Authentication authentication) {
-//
-//        String username = authentication != null ? authentication.getName() : "UNKNOWN";
-//        orderService.createTakeawayOrder(request, username);
-//        return ApiResponse.ok("Đã tạo đơn Take-away thành công", null);
-//    }
-
     @GetMapping("/takeaway/active")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    public ApiResponse<java.util.List<com.fnb.order.dto.response.PosTableResponse>> getActiveTakeawayOrders() {
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SERVER')")
+    public ApiResponse<List<PosTableResponse>> getActiveTakeawayOrders() {
         return ApiResponse.ok("", orderService.getActiveTakeawayOrders());
     }
 }

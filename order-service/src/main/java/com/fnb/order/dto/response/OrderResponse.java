@@ -15,6 +15,7 @@ public class OrderResponse {
     private UUID sessionId;
     private UUID tableId;
     private String tableNumber;
+    private String orderIdentifier; // VD: "Bàn 12" hoặc "Mang Đi #A1B2"
     private String status; // OPEN, PAID, CANCELLED
     private String source; // QR, MANUAL
     private String orderType; // DINE_IN, TAKEAWAY, DELIVERY

@@ -18,9 +18,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
+
 
 @Slf4j
 @Service
@@ -105,8 +107,8 @@ public class SessionService {
                 .source(source)
                 .orderType("DINE_IN")
                 .status("OPEN")
-                .subtotal(java.math.BigDecimal.ZERO)
-                .total(java.math.BigDecimal.ZERO)
+                .subtotal(BigDecimal.ZERO)
+                .total(BigDecimal.ZERO)
                 .build();
         orderRepository.save(order);
 
@@ -139,8 +141,8 @@ public class SessionService {
                 .source("MANUAL")
                 .orderType("TAKEAWAY")
                 .status("OPEN")
-                .subtotal(java.math.BigDecimal.ZERO)
-                .total(java.math.BigDecimal.ZERO)
+                .subtotal(BigDecimal.ZERO)
+                .total(BigDecimal.ZERO)
                 .build();
         orderRepository.save(order);
 
@@ -175,14 +177,21 @@ public class SessionService {
     }
 
     private SessionResponse toResponse(TableSession session) {
+        String orderType = session.getTable() != null ? "DINE_IN" : "TAKEAWAY";
+        String identifier = orderType.equals("DINE_IN") 
+                ? "Bàn " + session.getTable().getNumber() 
+                : "Mang Đi #" + session.getId().toString().substring(0, 4).toUpperCase();
+
         return SessionResponse.builder()
                 .id(session.getId())
                 .tableId(session.getTable() != null ? session.getTable().getId() : null)
-                .tableNumber(session.getTable() != null ? session.getTable().getNumber() : 0)
+                .tableNumber(session.getTable() != null ? session.getTable().getNumber() : null)
                 .sessionToken(session.getSessionToken())
                 .status(session.getStatus())
                 .openedAt(session.getOpenedAt())
                 .expiresAt(session.getExpiresAt())
+                .orderType(orderType)
+                .orderIdentifier(identifier)
                 .build();
     }
 }

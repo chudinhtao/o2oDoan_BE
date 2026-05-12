@@ -72,4 +72,16 @@ public class OrderTicketItem {
     @OneToMany(mappedBy = "ticketItem", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<OrderItemOption> options = new ArrayList<>();
+
+    @Column(name = "is_alert_sent")
+    @Builder.Default
+    private Boolean isAlertSent = false;
+
+    @Column(name = "kitchen_alert_sent")
+    @Builder.Default
+    private Boolean kitchenAlertSent = false;
+
+    @Column(name = "delivery_alert_sent")
+    @Builder.Default
+    private Boolean deliveryAlertSent = false;
 }

@@ -11,6 +11,12 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import com.fnb.menu.dto.response.MenuItemResponse;
+import com.fnb.menu.entity.MenuItem;
+import com.fnb.menu.service.MenuItemService;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/menu/internal")
@@ -18,7 +24,7 @@ import java.util.UUID;
 public class MenuInternalController {
 
     private final MenuItemRepository menuItemRepository;
-    private final com.fnb.menu.service.MenuItemService menuItemService;
+    private final MenuItemService menuItemService;
 
     /**
      * Noi bo: order-service goi moi cuoi ngay de update mon ban chay.
@@ -35,8 +41,8 @@ public class MenuInternalController {
     }
 
     @PostMapping("/items/bulk")
-    public ResponseEntity<ApiResponse<List<com.fnb.menu.dto.response.MenuItemResponse>>> getBulkItems(@RequestBody List<UUID> itemIds) {
-        List<com.fnb.menu.dto.response.MenuItemResponse> responses = new java.util.ArrayList<>();
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getBulkItems(@RequestBody List<UUID> itemIds) {
+        List<MenuItemResponse> responses = new ArrayList<>();
         for (UUID id : itemIds) {
             try {
                 responses.add(menuItemService.getItem(id));
@@ -54,26 +60,22 @@ public class MenuInternalController {
      */
     @GetMapping("/overview")
     public ResponseEntity<ApiResponse<MenuOverviewResponse>> getMenuOverview() {
-        List<com.fnb.menu.entity.MenuItem> allActive = menuItemRepository.findAll().stream()
+        List<MenuItem> allActive = menuItemRepository.findAll().stream()
                 .filter(m -> m.isActive())
                 .toList();
 
         long totalActive  = allActive.size();
         long unavailable  = allActive.stream().filter(m -> !m.isAvailable()).count();
         LocalDateTime now = LocalDateTime.now();
-        long onSale       = allActive.stream()
-                .filter(m -> m.getSalePrice() != null
-                        && (m.getSaleStartAt() == null || !now.isBefore(m.getSaleStartAt()))
-                        && (m.getSaleEndAt()   == null || !now.isAfter(m.getSaleEndAt())))
-                .count();
-        long featured     = allActive.stream().filter(com.fnb.menu.entity.MenuItem::isFeatured).count();
+        long onSale       = 0; // Legacy logic removed, promotions handle sales now
+        long featured     = allActive.stream().filter(MenuItem::isFeatured).count();
 
         // Mon het hang theo tram (station)
-        java.util.Map<String, Long> unavailableByStation = allActive.stream()
+        Map<String, Long> unavailableByStation = allActive.stream()
                 .filter(m -> !m.isAvailable())
-                .collect(java.util.stream.Collectors.groupingBy(
+                .collect(Collectors.groupingBy(
                         m -> m.getStation() != null ? m.getStation() : "UNKNOWN",
-                        java.util.stream.Collectors.counting()
+                        Collectors.counting()
                 ));
 
         // Mon het hang cu the (de AI biet chinh xac)
@@ -98,7 +100,7 @@ public class MenuInternalController {
             long unavailableItems,
             long itemsOnSale,
             long featuredItems,
-            java.util.Map<String, Long> unavailableByStation,
+            Map<String, Long> unavailableByStation,
             List<UnavailableItem> unavailableItemList
     ) {}
 

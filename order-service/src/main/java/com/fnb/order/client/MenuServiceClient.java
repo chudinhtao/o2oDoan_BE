@@ -7,6 +7,10 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import com.fnb.common.dto.IBundleItem;
+import com.fnb.common.dto.IBundleRule;
+import com.fnb.common.dto.ITarget;
+import java.time.LocalDateTime;
 
 @FeignClient(name = "menu-service")
 public interface MenuServiceClient {
@@ -54,13 +58,13 @@ public interface MenuServiceClient {
             int priority,
             Boolean stackable,
             Boolean active,
-            java.time.LocalDateTime startAt,
-            java.time.LocalDateTime endAt,
+            LocalDateTime startAt,
+            LocalDateTime endAt,
             List<TargetDetail> targets,
             List<BundleItemDetail> bundleItems,
             RequirementDetail requirement,
             List<ScheduleDetail> schedules
-    ) implements com.fnb.common.dto.IBundleRule {
+    ) implements IBundleRule {
         @Override public String getName() { return name; }
         @Override public String getCode() { return code; }
         @Override public Integer getPriority() { return priority; }
@@ -68,15 +72,15 @@ public interface MenuServiceClient {
         @Override public BigDecimal getDiscountValue() { return discountValue; }
         @Override public BigDecimal getMaxDiscount() { return maxDiscount; }
         @Override public List<BundleItemDetail> getBundleItems() { return bundleItems; }
-        @Override public java.time.LocalDateTime getEndAt() { return endAt; }
+        @Override public LocalDateTime getEndAt() { return endAt; }
     }
 
-    record TargetDetail(UUID id, String targetType, UUID targetId) implements com.fnb.common.dto.ITarget {
+    record TargetDetail(UUID id, String targetType, UUID targetId) implements ITarget {
         @Override public String getTargetType() { return targetType; }
         @Override public UUID getTargetId() { return targetId; }
     }
 
-    record BundleItemDetail(UUID id, UUID itemId, int quantity, String role) implements com.fnb.common.dto.IBundleItem {
+    record BundleItemDetail(UUID id, UUID itemId, int quantity, String role) implements IBundleItem {
         @Override public UUID getItemId() { return itemId; }
         @Override public int getQuantity() { return quantity; }
         @Override public String getRole() { return role; }

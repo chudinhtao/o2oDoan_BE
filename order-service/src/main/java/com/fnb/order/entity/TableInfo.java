@@ -25,10 +25,6 @@ public class TableInfo {
 
     @Column(name = "qr_token", unique = true, length = 100)
     private String qrToken;
-
-    @Column(name = "qr_url", length = 500)
-    private String qrUrl;
-
     @Column(length = 20)
     @Builder.Default
     private String status = "FREE"; // FREE, OCCUPIED, PAYMENT_REQUESTED, CLEANING

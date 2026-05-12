@@ -1,5 +1,6 @@
 package com.fnb.order;
 
+import io.github.cdimascio.dotenv.Dotenv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
@@ -12,6 +13,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 public class OrderServiceApplication {
     public static void main(String[] args) {
+        Dotenv.configure()
+                .directory("..")
+                .ignoreIfMissing()
+                .load()
+                .entries()
+                .forEach(e -> System.setProperty(e.getKey(), e.getValue()));
+
         SpringApplication.run(OrderServiceApplication.class, args);
     }
 }

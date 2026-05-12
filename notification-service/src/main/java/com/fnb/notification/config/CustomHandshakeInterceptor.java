@@ -11,10 +11,14 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Value;
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * Interceptor chạy trong quá trình HTTP Handshake (Upgrade sang WebSocket).
  * Nhiệm vụ: Móc cookie 'sessionToken' ra và ném vào WebSocket Session Attributes.
  */
+@Slf4j
 @Component
 public class CustomHandshakeInterceptor implements HandshakeInterceptor {
 

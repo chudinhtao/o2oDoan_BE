@@ -20,8 +20,7 @@ spring:
         default_schema: orders
     open-in-view: false
 
-  flyway:
-    enabled: false
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -38,5 +37,9 @@ eureka:
     prefer-ip-address: true
 
 jwt:
-  secret: ${JWT_SECRET:}
+  secret: ${JWT_SECRET}
   expiration: 86400000
+
+internal:
+  secret: ${INTERNAL_SECRET}
+

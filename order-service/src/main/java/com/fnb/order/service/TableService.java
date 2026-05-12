@@ -110,7 +110,6 @@ public class TableService {
         // Tạo token ngẫu nhiên mới mỗi lần tạo QR (tránh khách quét QR cũ)
         String newToken = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         table.setQrToken(newToken);
-        table.setQrUrl(qrBaseUrl + newToken);
 
         return toResponse(tableRepository.save(table));
     }
@@ -120,7 +119,6 @@ public class TableService {
     public TableResponse disableQrCode(UUID id) {
         TableInfo table = findById(id);
         table.setQrToken(null);
-        table.setQrUrl(null);
         return toResponse(tableRepository.save(table));
     }
 
@@ -184,13 +182,15 @@ public class TableService {
     }
 
     private TableResponse toResponse(TableInfo table) {
+        String computedQrUrl = table.getQrToken() != null ? qrBaseUrl + table.getQrToken() : null;
+        
         return TableResponse.builder()
                 .id(table.getId())
                 .number(table.getNumber())
                 .name(table.getName())
                 .status(table.getStatus())
                 .capacity(table.getCapacity())
-                .qrUrl(table.getQrUrl())
+                .qrUrl(computedQrUrl)
                 .isActive(table.isActive())
                 .zone(table.getZone())
                 .build();

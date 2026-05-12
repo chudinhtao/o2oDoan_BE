@@ -12,6 +12,15 @@ import vn.payos.model.webhooks.WebhookData;
 import java.util.UUID;
 import java.math.BigDecimal;
 import java.util.Optional;
+import com.fnb.order.dto.event.StaffCallCreatedEvent;
+import com.fnb.order.entity.Order;
+import com.fnb.order.repository.OrderRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -19,9 +28,9 @@ import java.util.Optional;
 public class PayOSPaymentService {
 
     private final PayOS payOS;
-    private final com.fnb.order.repository.OrderRepository orderRepository;
+    private final OrderRepository orderRepository;
     private final OrderService orderService;
-    private final org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     @Value("${app.qr-base-url}")
     private String qrBaseUrl;
@@ -32,18 +41,19 @@ public class PayOSPaymentService {
     /**
      * Creates a payment link or QR code through PayOS.
      */
-    public String createPaymentLink(UUID orderId, String sessionToken, BigDecimal totalAmount, BigDecimal cashAmount) {
+    @Transactional
+    public java.util.Map<String, String> createPaymentLink(UUID orderId, String sessionToken, BigDecimal totalAmount, BigDecimal cashAmount) {
         try {
             Long orderCode = System.currentTimeMillis() / 1000; // Unique orderCode for PayOS
 
             // 1. Lấy đơn hàng và kiểm tra tính hợp lệ
-            com.fnb.order.entity.Order order = orderRepository.findById(orderId)
+            Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Mã đơn hàng không hợp lệ"));
             
             // 2. Bảo mật: Xác minh xem đơn hàng này có thuộc về SessionToken gửi lên không
             if (sessionToken == null || order.getSession() == null || !sessionToken.equals(order.getSession().getSessionToken())) {
                 log.warn("🚨 CẢNH BÁO BẢO MẬT: Có người cố tình tạo thanh toán cho đơn {} nhưng sai SessionToken!", orderId);
-                throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền thực hiện thanh toán cho đơn hàng này!");
+                throw new AccessDeniedException("Bạn không có quyền thực hiện thanh toán cho đơn hàng này!");
             }
 
             // 3. Chuẩn bị yêu cầu gửi sang PayOS
@@ -70,9 +80,14 @@ public class PayOSPaymentService {
             orderRepository.save(order);
 
             log.info("Tạo link thanh toán PayOS thành công cho Order {}, PayOS Code: {}", orderId, orderCode);
-            return response.getCheckoutUrl();
+            java.util.Map<String, String> result = new java.util.HashMap<>();
+            result.put("checkoutUrl", response.getCheckoutUrl());
+            if (response.getQrCode() != null) {
+                result.put("qrCode", response.getQrCode());
+            }
+            return result;
 
-        } catch (org.springframework.security.access.AccessDeniedException e) {
+        } catch (AccessDeniedException e) {
             throw e;
         } catch (Exception e) {
             log.error("Lỗi khi tạo payment link với PayOS: ", e);
@@ -91,7 +106,7 @@ public class PayOSPaymentService {
             log.info("✅ Xác thực Webhook PayOS thành công: Mã: {}, Tiền: {}", payosOrderCode, data.getAmount());
 
             // 1. Tìm Order trong Database theo payos_order_code
-            com.fnb.order.entity.Order order = orderRepository.findByPayosOrderCode(payosOrderCode)
+            Order order = orderRepository.findByPayosOrderCode(payosOrderCode)
                 .orElseThrow(() -> new Exception("Không tìm thấy đơn hàng tương ứng với mã " + payosOrderCode));
             
             // 2. Xác định số tiền cần thiết từ PayOS (Nếu là MIXED thì chỉ cần đủ phần qr)
@@ -100,8 +115,8 @@ public class PayOSPaymentService {
 
             if (isMixed && order.getPaymentDetail() != null) {
                 try {
-                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(order.getPaymentDetail());
+                    ObjectMapper mapper = new ObjectMapper();
+                    JsonNode node = mapper.readTree(order.getPaymentDetail());
                     if (node.has("qr")) {
                         requiredAmount = node.get("qr").asDouble();
                     }
@@ -126,13 +141,13 @@ public class PayOSPaymentService {
                 log.warn("❌ Khách bàn/mang về {} thanh toán thiếu tiền: Cần chuyển {}, nhưng chỉ gửi {}", order.getTable() != null ? order.getTable().getNumber() : "Mang về", requiredAmount, data.getAmount());
                 
                 // Bắn thông báo StaffCall cho Thu ngân đến xử lý tại bàn
-                com.fnb.order.dto.event.StaffCallCreatedEvent event = com.fnb.order.dto.event.StaffCallCreatedEvent.builder()
-                        .callId(java.util.UUID.randomUUID())
+                StaffCallCreatedEvent event = StaffCallCreatedEvent.builder()
+                        .callId(UUID.randomUUID())
                         .sessionId(order.getSession().getId())
                         .tableId(order.getTable() != null ? order.getTable().getId() : null)
                         .tableNumber(order.getTable() != null ? order.getTable().getNumber() : null)
                         .callType("INSUFFICIENT_PAYMENT") 
-                        .calledAt(java.time.LocalDateTime.now())
+                        .calledAt(LocalDateTime.now())
                         .build();
                 applicationEventPublisher.publishEvent(event);
             }
@@ -146,7 +161,7 @@ public class PayOSPaymentService {
     /**
      * Đồng bộ trạng thái thanh toán thủ công/theo lịch cho các đơn đang treo PAYMENT_REQUESTED.
      */
-    public void syncPendingPayment(com.fnb.order.entity.Order order) {
+    public void syncPendingPayment(Order order) {
         if (order.getPayosOrderCode() == null) return;
 
         try {
@@ -158,10 +173,18 @@ public class PayOSPaymentService {
                 log.info("💰 PayOS Sync Job: Đơn {} đã được thanh toán (status=PAID)! Tiến hành đóng đơn.", order.getId());
                 orderService.closeOrder(order.getId(), true, null, "PayOS", null);
             } else if ("CANCELLED".equals(status)) {
-                log.info("🚫 PayOS Sync Job: Link thanh toán đơn {} đã bị huỷ. Trả order về trạng thái OPEN.", order.getId());
-                order.setStatus("OPEN");
-                orderRepository.save(order);
-                // Bắn event websocket nếu cần
+                log.info("🚫 PayOS Sync Job: Link thanh toán QR PayOS của đơn {} đã hết hạn/bị huỷ. Bắn cảnh báo cho POS xử lý.", order.getId());
+                
+                // Bắn thông báo StaffCall cho Thu ngân thay vì tự lùi về OPEN
+                StaffCallCreatedEvent event = StaffCallCreatedEvent.builder()
+                        .callId(UUID.randomUUID())
+                        .sessionId(order.getSession().getId())
+                        .tableId(order.getTable() != null ? order.getTable().getId() : null)
+                        .tableNumber(order.getTable() != null ? order.getTable().getNumber() : null)
+                        .callType("PAYMENT_QR_EXPIRED") 
+                        .calledAt(LocalDateTime.now())
+                        .build();
+                applicationEventPublisher.publishEvent(event);
             }
         } catch (Exception e) {
             log.error("PayOS Sync Job Error: Cập nhật lỗi cho đơn hàng {}", order.getId(), e);

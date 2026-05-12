@@ -16,4 +16,7 @@ public class SessionResponse {
     private String status;
     private LocalDateTime openedAt;
     private LocalDateTime expiresAt;
+    /** "DINE_IN" hoặc "TAKEAWAY" */
+    private String orderType;
+    private String orderIdentifier;
 }

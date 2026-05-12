@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.Map;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 
 @Service
 @RequiredArgsConstructor
@@ -19,7 +21,6 @@ public class CloudinaryService {
 
     /**
      * Delete an image from Cloudinary by its Public ID
-     * @param publicId Public ID of the image (e.g. "items/burger")
      */
     @Async
     public void deleteImage(String input) {
@@ -38,7 +39,7 @@ public class CloudinaryService {
 
         try {
             // URL có thể bị encode (đặc biệt là tên file tiếng Việt), cần decode trước khi gửi lên Cloudinary
-            publicId = java.net.URLDecoder.decode(publicId, java.nio.charset.StandardCharsets.UTF_8.name());
+            publicId = URLDecoder.decode(publicId, StandardCharsets.UTF_8.name());
             
             log.info("Deleting image from Cloudinary ID: [{}]", publicId);
             Map result = cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap());

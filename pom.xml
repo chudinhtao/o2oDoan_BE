@@ -11,7 +11,13 @@
     <name>Fnb Backend Root</name>
 
     <modules>
+        <!-- Shared Libraries (mới — thay thế common-lib) -->
+        <module>common-core</module>
+        <module>common-security</module>
+        <module>common-pricing</module>
+        <!-- common-lib: giữ tạm trong giai đoạn transition -->
         <module>common-lib</module>
+
         <module>eureka-server</module>
         <module>api-gateway</module>
         <module>auth-service</module>
@@ -22,5 +28,6 @@
         <module>notification-service</module>
         <module>ai-service</module>
     </modules>
+
 
 </project>

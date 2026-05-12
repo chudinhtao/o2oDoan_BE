@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.util.UUID;
+import com.fnb.common.dto.ITarget;
 
 @Entity
 @Table(name = "promotion_targets", schema = "menu")
@@ -11,7 +12,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PromotionTarget implements com.fnb.common.dto.ITarget {
+public class PromotionTarget implements ITarget {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

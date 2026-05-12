@@ -23,11 +23,11 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
             SELECT oti.* FROM orders.order_ticket_items oti
             JOIN orders.order_tickets ot ON oti.ticket_id = ot.id
             JOIN orders.orders o ON ot.order_id = o.id
-            WHERE oti.status IN ('DONE', 'COMPLETED')
+            WHERE (oti.status IN ('DONE', 'COMPLETED') OR (oti.status = 'DELIVERING' AND oti.served_by = :serverId))
               AND oti.served_at IS NULL
             ORDER BY oti.created_at ASC
             """, nativeQuery = true)
-    List<OrderTicketItem> findPendingDeliveries();
+    List<OrderTicketItem> findPendingDeliveries(@Param("serverId") UUID serverId);
 
     /**
      * Có filter theo Zone: chỉ lấy các món thuộc bàn trong danh sách zone.
@@ -38,12 +38,12 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
             JOIN orders.order_tickets ot ON oti.ticket_id = ot.id
             JOIN orders.orders o ON ot.order_id = o.id
             JOIN orders.tables t ON o.table_id = t.id
-            WHERE oti.status IN ('DONE', 'COMPLETED')
+            WHERE (oti.status IN ('DONE', 'COMPLETED') OR (oti.status = 'DELIVERING' AND oti.served_by = :serverId))
               AND oti.served_at IS NULL
-              AND (:zones IS NULL OR t.zone = ANY(CAST(:zones AS text[])))
+              AND (oti.delivery_alert_sent = true OR :zones IS NULL OR t.zone = ANY(CAST(:zones AS text[])))
             ORDER BY oti.created_at ASC
             """, nativeQuery = true)
-    List<OrderTicketItem> findPendingDeliveriesByZones(@Param("zones") String zones);
+    List<OrderTicketItem> findPendingDeliveriesByZones(@Param("zones") String zones, @Param("serverId") UUID serverId);
 
     /**
      * Đếm số món còn lại đang PENDING/PREPARING trong cùng ticket.
@@ -62,23 +62,49 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
      */
     @Query(value = """
             SELECT oti.* FROM orders.order_ticket_items oti
-            WHERE oti.status IN ('DONE', 'COMPLETED')
+            WHERE oti.status IN ('DONE', 'COMPLETED', 'DELIVERING')
               AND oti.served_at IS NULL
+              AND oti.delivery_alert_sent = false
               AND oti.created_at <= :threshold
             """, nativeQuery = true)
     List<OrderTicketItem> findOverdueDeliveries(@Param("threshold") LocalDateTime threshold);
 
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE orders.order_ticket_items
+            SET status = 'DELIVERING', served_by = :serverId
+            WHERE id IN :itemIds
+              AND status IN ('DONE', 'COMPLETED')
+            """, nativeQuery = true)
+    int markAsDelivering(
+            @Param("itemIds") List<UUID> itemIds,
+            @Param("serverId") UUID serverId
+    );
+
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE orders.order_ticket_items
+            SET status = 'DONE', served_by = NULL
+            WHERE id IN :itemIds
+              AND status = 'DELIVERING'
+              AND served_by = :serverId
+            """, nativeQuery = true)
+    int unclaimDelivery(
+            @Param("itemIds") List<UUID> itemIds,
+            @Param("serverId") UUID serverId
+    );
+
     /**
      * Bulk update: Đánh dấu SERVED cho nhiều món một lúc.
-     * Chỉ update các món đang ở status DONE/COMPLETED (tránh update nhầm).
+     * Chỉ update các món đang ở status DELIVERING.
      * Returns số bản ghi bị ảnh hưởng.
      */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE orders.order_ticket_items
             SET status = 'SERVED', served_at = :servedAt, served_by = :servedBy
             WHERE id IN :itemIds
-              AND status IN ('DONE', 'COMPLETED')
+              AND status = 'DELIVERING'
               AND served_at IS NULL
             """, nativeQuery = true)
     int markAsServed(
@@ -87,14 +113,10 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
             @Param("servedBy") UUID servedBy
     );
 
-    /**
-     * Undo serve: Rollback về DONE nếu served_at trong vòng 30 giây.
-     * Điều kiện served_at >= :cutoff đảm bảo chỉ Undo được trong cửa sổ thời gian.
-     */
     @Modifying
     @Query(value = """
             UPDATE orders.order_ticket_items
-            SET status = 'DONE', served_at = NULL, served_by = NULL
+            SET status = 'DELIVERING', served_at = NULL
             WHERE id IN :itemIds
               AND status = 'SERVED'
               AND served_at >= :cutoff
@@ -104,7 +126,6 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
             @Param("cutoff") LocalDateTime cutoff
     );
 
-    /** KPI: T\u1ed5ng m\u00f3n \u0111\u00e3 b\u01b0ng c\u1ee7a nh\u00e2n vi\u00ean h\u00f4m nay. */
     @Query(value = "SELECT COUNT(*) FROM orders.order_ticket_items " +
             "WHERE served_by = :serverId AND served_at >= :startOfDay",
             nativeQuery = true)
@@ -112,6 +133,23 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
             @Param("serverId") UUID serverId,
             @Param("startOfDay") LocalDateTime startOfDay
     );
+
+    @Query(value = """
+            SELECT oti.* FROM orders.order_ticket_items oti
+            WHERE oti.status = 'PREPARING'
+              AND oti.kitchen_alert_sent = false
+              AND oti.created_at <= :threshold
+            """, nativeQuery = true)
+    List<OrderTicketItem> findOverdueKitchenItems(@Param("threshold") LocalDateTime threshold);
+
+    @Query(value = """
+            SELECT oti.* FROM orders.order_ticket_items oti
+            JOIN orders.order_tickets ot ON oti.ticket_id = ot.id
+            JOIN orders.orders o ON ot.order_id = o.id
+            WHERE o.session_id = :sessionId
+              AND oti.status IN ('DONE', 'COMPLETED')
+            """, nativeQuery = true)
+    List<OrderTicketItem> findDoneItemsBySessionId(@Param("sessionId") UUID sessionId);
 
     List<OrderTicketItem> findByIdIn(List<UUID> ids);
 }

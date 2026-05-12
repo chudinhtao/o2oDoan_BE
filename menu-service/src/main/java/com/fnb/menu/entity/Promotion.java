@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import com.fnb.common.dto.IBundleItem;
+import com.fnb.common.dto.IBundleRule;
 
 // Sub-entity imports (same package — explicit for Lombok/JPA clarity)
 
@@ -19,11 +21,11 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(exclude = {"targets", "bundleItems", "requirements", "schedules"})
-public class Promotion implements com.fnb.common.dto.IBundleRule {
+public class Promotion implements IBundleRule {
 
     // Interface fulfillment
     @Override
-    public List<? extends com.fnb.common.dto.IBundleItem> getBundleItems() {
+    public List<? extends IBundleItem> getBundleItems() {
         return this.bundleItems;
     }
 

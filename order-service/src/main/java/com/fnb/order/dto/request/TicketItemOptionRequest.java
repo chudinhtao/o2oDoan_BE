@@ -2,9 +2,10 @@ package com.fnb.order.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
+import java.util.UUID;
 
 @Data
 public class TicketItemOptionRequest {
 
-    private java.util.UUID optionId;
+    private UUID optionId;
 }

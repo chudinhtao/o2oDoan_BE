@@ -3,8 +3,10 @@ package com.fnb.notification.config;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -16,13 +18,17 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.HashMap;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class WebSocketJwtInterceptor implements ChannelInterceptor {
 
     @Value("${jwt.secret}")
     private String jwtSecret;
+
+    private final StringRedisTemplate redisTemplate;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -38,6 +44,14 @@ public class WebSocketJwtInterceptor implements ChannelInterceptor {
                 String bearerToken = authHeaders.get(0);
                 if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
                     String token = bearerToken.substring(7);
+
+                    // ★ Bước 1: Kiểm tra Blacklist trước tiên - chống Token bị Logout/Revoke
+                    String blacklistKey = "blacklist:" + token;
+                    if (Boolean.TRUE.equals(redisTemplate.hasKey(blacklistKey))) {
+                        log.warn("WS CONNECT REJECTED - Token has been revoked (blacklisted): user attempted reconnect");
+                        throw new IllegalArgumentException("Token has been revoked. Please login again.");
+                    }
+
                     try {
                         SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
                         Claims claims = Jwts.parser()
@@ -56,7 +70,7 @@ public class WebSocketJwtInterceptor implements ChannelInterceptor {
                         
                         // Vẫn lưu vào SessionAttributes cho chắc chắn
                         if (accessor.getSessionAttributes() == null) {
-                            accessor.setSessionAttributes(new java.util.HashMap<>());
+                            accessor.setSessionAttributes(new HashMap<>());
                         }
                         accessor.getSessionAttributes().put("role", role);
                         accessor.getSessionAttributes().put("userId", userId);
@@ -83,7 +97,7 @@ public class WebSocketJwtInterceptor implements ChannelInterceptor {
                     accessor.setUser(() -> principalName);
 
                     if (accessor.getSessionAttributes() == null) {
-                        accessor.setSessionAttributes(new java.util.HashMap<>());
+                        accessor.setSessionAttributes(new HashMap<>());
                     }
 
                     accessor.getSessionAttributes().put("role", "CUSTOMER");
@@ -124,13 +138,13 @@ public class WebSocketJwtInterceptor implements ChannelInterceptor {
                         throw new IllegalArgumentException("Access Denied: Kitchen role required");
                     }
                 }
-                // 2. Staff & POS - Yêu cầu role CASHIER hoặc ADMIN
-                // Chỉ kiểm tra nếu KHÔNG PHẢI là topic KDS (đã check ở trên) và chứa các từ khóa staff/pos/orders
-                else if (destination.contains("staff") || destination.contains("pos") || 
+                // 2. Staff & POS & Server - Yêu cầu role CASHIER, SERVER hoặc ADMIN
+                // Chỉ kiểm tra nếu KHÔNG PHẢI là topic KDS (đã check ở trên) và chứa các từ khóa server/staff/pos/orders
+                else if (destination.contains("server") || destination.contains("staff") || destination.contains("pos") || 
                     (destination.contains("orders") && !destination.contains("/topic/sessions/"))) {
-                    if (!"CASHIER".equals(role) && !"ADMIN".equals(role)) {
-                        log.error("Access Denied to Staff/POS channel: {} for role: {}", destination, role);
-                        throw new IllegalArgumentException("Access Denied: Staff/Cashier role required");
+                    if (!"CASHIER".equals(role) && !"ADMIN".equals(role) && !"SERVER".equals(role)) {
+                        log.error("Access Denied to Server/Staff/POS channel: {} for role: {}", destination, role);
+                        throw new IllegalArgumentException("Access Denied: Staff/Cashier/Server role required");
                     }
                 }
                 

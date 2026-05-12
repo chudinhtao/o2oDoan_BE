@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "order_ticket_items", schema = "orders")
@@ -33,7 +34,7 @@ public class KdsOrderTicketItem {
     private String status;
     
     @Column(name = "unit_price")
-    private java.math.BigDecimal unitPrice;
+    private BigDecimal unitPrice;
     
     @Column(name = "station")
     private String station;
@@ -55,4 +56,7 @@ public class KdsOrderTicketItem {
     @OneToMany(mappedBy = "ticketItem", fetch = FetchType.LAZY)
     @Builder.Default
     private List<KdsOrderItemOption> options = new ArrayList<>();
+
+    @Column(name = "kitchen_alert_sent")
+    private Boolean kitchenAlertSent;
 }

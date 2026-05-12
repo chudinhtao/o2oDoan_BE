@@ -20,6 +20,9 @@ public class MenuServiceApplication {
         
         dotenv.entries().forEach(entry -> System.setProperty(entry.getKey(), entry.getValue()));
         
+        String internalSecret = System.getProperty("INTERNAL_SECRET");
+        System.out.println(">>> [DOTENV] INTERNAL_SECRET loaded: " + (internalSecret != null ? "YES (starts with " + internalSecret.substring(0, 5) + "...)" : "NO"));
+        
         SpringApplication.run(MenuServiceApplication.class, args);
     }
 }

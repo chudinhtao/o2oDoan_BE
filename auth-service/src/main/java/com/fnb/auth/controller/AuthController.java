@@ -8,6 +8,7 @@ import com.fnb.common.dto.ApiResponse;
 import com.fnb.common.exception.UnauthorizedException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -22,12 +23,14 @@ public class AuthController {
 
     private final AuthService authService;
 
+    /** POST /api/auth/login */
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(
             @Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Đăng nhập thành công", authService.login(request)));
     }
 
+    /** POST /api/auth/refresh */
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<LoginResponse>> refresh(
             @RequestBody Map<String, String> body) {
@@ -35,10 +38,28 @@ public class AuthController {
     }
 
     /**
+     * POST /api/auth/logout
+     * Yêu cầu header: Authorization: Bearer <access_token>
+     * Header X-User-Id được gateway inject (hoặc JwtDirectFilter nếu gọi thẳng).
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new UnauthorizedException("Chưa đăng nhập");
+        }
+
+        String token  = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
+        String userId = auth.getName();
+        authService.logout(token, userId);
+
+        return ResponseEntity.ok(ApiResponse.ok("Đăng xuất thành công", null));
+    }
+
+    /**
      * GET /api/auth/me
-     * Principal (userId UUID string) được set bởi:
-     *  - GatewayHeaderFilter  → khi đi qua API Gateway (có X-User-Id header)
-     *  - JwtDirectFilter      → khi gọi thẳng port 8081 với Bearer token
+     * Principal được set bởi GatewayHeaderFilter hoặc JwtDirectFilter.
      */
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> me() {
@@ -47,8 +68,7 @@ public class AuthController {
             throw new UnauthorizedException("Chưa đăng nhập");
         }
 
-        String userId = auth.getName(); // getName() = getPrincipal().toString()
+        String userId = auth.getName();
         return ResponseEntity.ok(ApiResponse.ok(authService.getMe(userId)));
     }
-
 }

@@ -14,6 +14,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.security.access.prepost.PreAuthorize;
+
 /**
  * Controller dành riêng cho role SERVER.
  * Tất cả endpoint đều yêu cầu X-User-Id header (được Gateway inject sau khi xác thực JWT).
@@ -23,6 +25,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/orders/server")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('ADMIN', 'SERVER')")
 public class ServerDeliveryController {
 
     private final ServerDeliveryService serverDeliveryService;
@@ -36,9 +39,34 @@ public class ServerDeliveryController {
      */
     @GetMapping("/deliveries")
     public ApiResponse<List<TicketDeliveryDto>> getPendingDeliveries(
+            @RequestHeader("X-User-Id") String userId,
             @RequestParam(required = false) String zones) {
         List<String> zoneList = parseZones(zones);
-        return ApiResponse.ok(serverDeliveryService.getPendingDeliveries(zoneList));
+        return ApiResponse.ok(serverDeliveryService.getPendingDeliveries(zoneList, UUID.fromString(userId)));
+    }
+
+    /**
+     * PUT /api/orders/server/deliveries/claim
+     * Server bấm "Nhận bưng": đánh dấu danh sách món là DELIVERING.
+     */
+    @PutMapping("/deliveries/claim")
+    public ApiResponse<String> claimDeliveries(
+            @RequestHeader("X-User-Id") String userId,
+            @Valid @RequestBody ServeItemsRequest request) {
+        int count = serverDeliveryService.claimDelivery(request.getItemIds(), UUID.fromString(userId));
+        return ApiResponse.ok(count + " món đã được nhận bưng.", null);
+    }
+
+    /**
+     * PUT /api/orders/server/deliveries/unclaim
+     * Server bấm "Bỏ nhận": trả danh sách món về trạng thái chờ bưng chung.
+     */
+    @PutMapping("/deliveries/unclaim")
+    public ApiResponse<String> unclaimDeliveries(
+            @RequestHeader("X-User-Id") String userId,
+            @Valid @RequestBody ServeItemsRequest request) {
+        int count = serverDeliveryService.unclaimDelivery(request.getItemIds(), UUID.fromString(userId));
+        return ApiResponse.ok(count + " món đã được trả lại khay chung.", null);
     }
 
     /**

@@ -44,13 +44,13 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, UUID> {
         WHERE m.isActive = true AND m.isAvailable = true
         AND (:categoryId IS NULL OR m.category.id = :categoryId)
         AND (LOWER(m.name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(m.description) LIKE LOWER(CONCAT('%', :keyword, '%')))
-        AND (:maxPrice IS NULL OR m.salePrice <= :maxPrice OR (m.salePrice IS NULL AND m.basePrice <= :maxPrice))
+        AND (:maxPrice IS NULL OR m.basePrice <= :maxPrice)
     """, countQuery = """
         SELECT COUNT(m) FROM MenuItem m
         WHERE m.isActive = true AND m.isAvailable = true
         AND (:categoryId IS NULL OR m.category.id = :categoryId)
         AND (LOWER(m.name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(m.description) LIKE LOWER(CONCAT('%', :keyword, '%')))
-        AND (:maxPrice IS NULL OR m.salePrice <= :maxPrice OR (m.salePrice IS NULL AND m.basePrice <= :maxPrice))
+        AND (:maxPrice IS NULL OR m.basePrice <= :maxPrice)
     """)
     Page<MenuItem> searchForCustomer(@Param("categoryId") UUID categoryId,
                                      @Param("keyword") String keyword,

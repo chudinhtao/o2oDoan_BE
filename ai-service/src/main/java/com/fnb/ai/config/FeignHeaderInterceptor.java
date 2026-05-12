@@ -16,8 +16,15 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Configuration
 public class FeignHeaderInterceptor implements RequestInterceptor {
 
+    @org.springframework.beans.factory.annotation.Value("${internal.secret}")
+    private String internalSecret;
+
     @Override
     public void apply(RequestTemplate template) {
+        if (internalSecret != null) {
+            template.header("X-Internal-Secret", internalSecret);
+        }
+
         ServletRequestAttributes attrs =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attrs == null) return;

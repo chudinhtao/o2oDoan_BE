@@ -16,6 +16,7 @@ public class StaffCallResponse {
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime resolvedAt;
+    private Boolean isSpilloverSent;
     /** Server đã tiếp nhận: dùng để FE lock nút "Tiếp nhận" của người khác. */
     private UUID acceptedBy;
     private LocalDateTime acceptedAt;

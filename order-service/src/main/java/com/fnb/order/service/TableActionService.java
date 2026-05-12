@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.Arrays;
 
 @Slf4j
 @Service
@@ -80,7 +81,7 @@ public class TableActionService {
 
         // (Tuỳ chọn cập nhật lại field "table" bên trong Order nếu có lưu cứng table
         // lúc tạo order)
-        orderRepository.findFirstBySessionIdAndStatusIn(activeSession.getId(), java.util.Arrays.asList("OPEN", "PAYMENT_REQUESTED"))
+        orderRepository.findFirstBySessionIdAndStatusIn(activeSession.getId(), Arrays.asList("OPEN", "PAYMENT_REQUESTED"))
                 .ifPresent(order -> {
                     order.setTable(targetTable);
                     orderRepository.save(order);
@@ -119,7 +120,7 @@ public class TableActionService {
         TableSession targetSession = sessionRepository.findActiveSessionByTableId(targetTableId)
                 .orElseThrow(() -> new BusinessException("Không tìm thấy phiên của bàn đích"));
 
-        Order targetOrder = orderRepository.findFirstBySessionIdAndStatusIn(targetSession.getId(), java.util.Arrays.asList("OPEN", "PAYMENT_REQUESTED"))
+        Order targetOrder = orderRepository.findFirstBySessionIdAndStatusIn(targetSession.getId(), Arrays.asList("OPEN", "PAYMENT_REQUESTED"))
                 .orElse(null);
 
         // Đếm ticket hiện tại của bàn đích để tính offset seqNumber
@@ -145,7 +146,7 @@ public class TableActionService {
                     .orElseThrow(
                             () -> new BusinessException("Không tìm thấy phiên của bàn " + sourceTable.getNumber()));
 
-            Order sourceOrder = orderRepository.findFirstBySessionIdAndStatusIn(sourceSession.getId(), java.util.Arrays.asList("OPEN", "PAYMENT_REQUESTED"))
+            Order sourceOrder = orderRepository.findFirstBySessionIdAndStatusIn(sourceSession.getId(), Arrays.asList("OPEN", "PAYMENT_REQUESTED"))
                     .orElse(null);
 
             // -- Gộp Order --

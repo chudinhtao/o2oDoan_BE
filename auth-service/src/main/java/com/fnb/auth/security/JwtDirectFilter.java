@@ -1,6 +1,6 @@
 package com.fnb.auth.security;
 
-import com.fnb.common.security.JwtUtil;
+import com.fnb.auth.security.JwtUtil;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -8,12 +8,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.io.IOException;
 import java.util.List;
@@ -29,6 +31,7 @@ import java.util.List;
 public class JwtDirectFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
+    private final StringRedisTemplate redisTemplate;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -44,7 +47,7 @@ public class JwtDirectFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Parse Bearer token
+        // Nếu chưa có auth, parse Bearer token
         String bearer = request.getHeader("Authorization");
         if (!StringUtils.hasText(bearer) || !bearer.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
@@ -52,6 +55,17 @@ public class JwtDirectFilter extends OncePerRequestFilter {
         }
 
         String token = bearer.substring(7);
+
+        // ★ Kiểm tra Blacklist: token đã bị Logout/Revoke chưa?
+        String blacklistKey = "auth:blacklist:" + token;
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(blacklistKey))) {
+            log.warn("JwtDirectFilter: token is blacklisted (revoked). IP={}", request.getRemoteAddr());
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"success\":false,\"message\":\"Token has been revoked. Please login again.\"}");
+            return;
+        }
+
         try {
             Claims claims = jwtUtil.extractClaims(token);
             String userId = (String) claims.get("userId");

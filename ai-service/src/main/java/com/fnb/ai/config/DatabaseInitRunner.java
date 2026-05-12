@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Arrays;
 
 /**
  * Tu dong khoi tao Knowledge Base bang file SQL tai thoi diem Spring Boot khoi dong.
@@ -62,7 +63,7 @@ public class DatabaseInitRunner {
                 String content = (String) row.get("content");
                 
                 dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(content).content();
-                String vectorStr = java.util.Arrays.toString(embedding.vector());
+                String vectorStr = Arrays.toString(embedding.vector());
                 
                 String updateSql = "UPDATE ai.knowledge_base SET embedding = ?::vector WHERE id = ?";
                 jdbcTemplate.update(updateSql, vectorStr, id);

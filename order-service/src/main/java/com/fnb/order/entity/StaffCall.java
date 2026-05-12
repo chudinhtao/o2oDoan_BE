@@ -54,4 +54,8 @@ public class StaffCall {
 
     @Column(length = 200)
     private String message;
+
+    @Column(name = "is_spillover_sent")
+    @Builder.Default
+    private boolean isSpilloverSent = false;
 }

@@ -14,6 +14,9 @@ import com.fnb.kds.dto.event.KdsTicketUpdatedEvent;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.fnb.kds.entity.KdsOrder;
+import com.fnb.kds.repository.KdsOrderRepository;
+import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/kds")
@@ -23,7 +26,7 @@ public class KdsController {
 
     private final KdsOrderTicketRepository kdsTicketRepository;
     private final KdsOrderTicketItemRepository kdsTicketItemRepository;
-    private final com.fnb.kds.repository.KdsOrderRepository kdsOrderRepository;
+    private final KdsOrderRepository kdsOrderRepository;
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @GetMapping("/tickets/active")
@@ -58,6 +61,7 @@ public class KdsController {
                 iMap.put("status", item.getStatus());
                 iMap.put("note", item.getNote());
                 iMap.put("station", item.getStation());
+                iMap.put("kitchenAlertSent", item.getKitchenAlertSent());
                 
                 // Add options as simple string array
                 if (item.getOptions() != null) {
@@ -112,13 +116,13 @@ public class KdsController {
                 // Subtract money from order
                 KdsOrderTicket ticket = item.getTicket();
                 if (ticket != null && ticket.getOrder() != null) {
-                    com.fnb.kds.entity.KdsOrder order = ticket.getOrder();
-                    java.math.BigDecimal extra = item.getOptions() != null ? 
-                         item.getOptions().stream().map(o -> o.getExtraPrice() != null ? o.getExtraPrice() : java.math.BigDecimal.ZERO)
-                             .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add) : java.math.BigDecimal.ZERO;
-                    java.math.BigDecimal unit = item.getUnitPrice() != null ? item.getUnitPrice() : java.math.BigDecimal.ZERO;
+                    KdsOrder order = ticket.getOrder();
+                    BigDecimal extra = item.getOptions() != null ? 
+                         item.getOptions().stream().map(o -> o.getExtraPrice() != null ? o.getExtraPrice() : BigDecimal.ZERO)
+                             .reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
+                    BigDecimal unit = item.getUnitPrice() != null ? item.getUnitPrice() : BigDecimal.ZERO;
                     int qty = item.getQuantity() != null ? item.getQuantity() : 1;
-                    java.math.BigDecimal itemValue = unit.add(extra).multiply(java.math.BigDecimal.valueOf(qty));
+                    BigDecimal itemValue = unit.add(extra).multiply(BigDecimal.valueOf(qty));
                     
                     if (order.getSubtotal() != null) order.setSubtotal(order.getSubtotal().subtract(itemValue));
                     if (order.getTotal() != null) order.setTotal(order.getTotal().subtract(itemValue));
@@ -212,19 +216,19 @@ public class KdsController {
             ticket.setStatus(upperNew);
             // Also update all items if marking whole ticket
             if ("DONE".equals(upperNew) || "CANCELLED".equals(upperNew)) {
-                com.fnb.kds.entity.KdsOrder order = ticket.getOrder();
+                KdsOrder order = ticket.getOrder();
                 boolean needsSave = false;
                 
-                for (com.fnb.kds.entity.KdsOrderTicketItem i : ticket.getItems()) {
+                for (KdsOrderTicketItem i : ticket.getItems()) {
                     if (!"CANCELLED".equalsIgnoreCase(i.getStatus())) {
                         
                         if ("CANCELLED".equals(upperNew) && order != null) {
-                            java.math.BigDecimal extra = i.getOptions() != null ? 
-                                 i.getOptions().stream().map(o -> o.getExtraPrice() != null ? o.getExtraPrice() : java.math.BigDecimal.ZERO)
-                                     .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add) : java.math.BigDecimal.ZERO;
-                            java.math.BigDecimal unit = i.getUnitPrice() != null ? i.getUnitPrice() : java.math.BigDecimal.ZERO;
+                            BigDecimal extra = i.getOptions() != null ? 
+                                 i.getOptions().stream().map(o -> o.getExtraPrice() != null ? o.getExtraPrice() : BigDecimal.ZERO)
+                                     .reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
+                            BigDecimal unit = i.getUnitPrice() != null ? i.getUnitPrice() : BigDecimal.ZERO;
                             int qty = i.getQuantity() != null ? i.getQuantity() : 1;
-                            java.math.BigDecimal itemValue = unit.add(extra).multiply(java.math.BigDecimal.valueOf(qty));
+                            BigDecimal itemValue = unit.add(extra).multiply(BigDecimal.valueOf(qty));
                             
                             if (order.getSubtotal() != null) order.setSubtotal(order.getSubtotal().subtract(itemValue));
                             if (order.getTotal() != null) order.setTotal(order.getTotal().subtract(itemValue));

@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import static org.hibernate.type.SqlTypes.JSON;
 
 @Entity
 @Table(name = "orders", schema = "orders")
@@ -87,7 +89,7 @@ public class Order {
     @Column(name = "payment_method", length = 30)
     private String paymentMethod; // CASH, PayOS, MIXED
 
-    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @JdbcTypeCode(JSON)
     @Column(name = "payment_detail", columnDefinition = "jsonb")
     private String paymentDetail;
 

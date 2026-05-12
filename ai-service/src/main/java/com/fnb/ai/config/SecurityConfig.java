@@ -1,5 +1,6 @@
 package com.fnb.ai.config;
 
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -7,6 +8,12 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import com.fnb.common.filter.InternalSecretFilter;
+import com.fnb.common.security.GatewayHeaderFilter;
+
+
 
 /**
  * Security config cho ai-service.
@@ -16,6 +23,30 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    @Bean
+    public InternalSecretFilter internalSecretFilter() {
+        return new InternalSecretFilter();
+    }
+
+    @Bean
+    public GatewayHeaderFilter gatewayHeaderFilter() {
+        return new GatewayHeaderFilter();
+    }
+
+    @Bean
+    public FilterRegistrationBean<InternalSecretFilter> internalSecretFilterRegistration(InternalSecretFilter filter) {
+        FilterRegistrationBean<InternalSecretFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
+
+    @Bean
+    public FilterRegistrationBean<GatewayHeaderFilter> gatewayHeaderFilterRegistration(GatewayHeaderFilter filter) {
+        FilterRegistrationBean<GatewayHeaderFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -29,7 +60,9 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").permitAll()
                 // Chat endpoints: tin tưởng gateway đã xác thực
                 .anyRequest().permitAll()
-            );
+            )
+            .addFilterBefore(internalSecretFilter(), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(gatewayHeaderFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 }

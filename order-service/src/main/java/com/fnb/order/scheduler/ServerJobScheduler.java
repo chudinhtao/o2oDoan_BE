@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.fnb.order.entity.Order;
 
 /**
  * Sweeper Job — Fault Tolerance cho Server Role.
@@ -48,7 +49,7 @@ public class ServerJobScheduler {
      * - COLD/DRINK: cảnh báo ngay (0 giây) - cần bưng càng sớm càng tốt
      */
     @Scheduled(fixedDelay = 30_000)
-    @Transactional(readOnly = true)
+    @Transactional
     public void sweepOverdueDeliveries() {
         LocalDateTime now = LocalDateTime.now();
         // Lấy tất cả món DONE, chưa SERVED, đã được hoàn thành từ trước :threshold
@@ -58,7 +59,7 @@ public class ServerJobScheduler {
         if (overdueItems.isEmpty()) return;
 
         // Group by Order (hỗ trợ cả Bàn và Takeaway)
-        Map<com.fnb.order.entity.Order, List<OrderTicketItem>> byOrder = overdueItems.stream()
+        Map<Order, List<OrderTicketItem>> byOrder = overdueItems.stream()
                 .filter(item -> item.getTicket() != null
                         && item.getTicket().getOrder() != null)
                 .collect(Collectors.groupingBy(item -> item.getTicket().getOrder()));
@@ -96,9 +97,34 @@ public class ServerJobScheduler {
                         .alertAt(now)
                         .build();
 
-                kafkaTemplate.send("delivery.ready.alert", tableNumber.toString(), alert);
-                log.warn("Sweeper [DELIVERY]: Bàn {} có {} món trễ ({} giây). Level: {}",
-                        tableNumber, urgentIds.size(), maxWait, alert.getUrgencyLevel());
+                try {
+                    String kafkaKey = order.getId().toString();
+                    kafkaTemplate.send("delivery.ready.alert", kafkaKey, alert).get();
+                    log.warn("Sweeper [DELIVERY]: Order {} (Bàn {}) có {} món trễ ({} giây). Level: {}",
+                            order.getId(), tableNumber, urgentIds.size(), maxWait, alert.getUrgencyLevel());
+                    
+                    // Update flag to prevent spam
+                    List<OrderTicketItem> urgentTicketItems = items.stream()
+                            .filter(i -> urgentIds.contains(i.getId()))
+                            .collect(Collectors.toList());
+                    urgentTicketItems.forEach(i -> i.setDeliveryAlertSent(true));
+                    ticketItemRepository.saveAll(urgentTicketItems);
+
+                    // Create StaffCall record if CRITICAL to show on POS Bell
+                    if ("CRITICAL".equals(alert.getUrgencyLevel())) {
+                        StaffCall call = StaffCall.builder()
+                                .session(order.getSession())
+                                .table(order.getTable())
+                                .callType("DELIVERY_DELAY_ALERT")
+                                .status("PENDING")
+                                .message("Món bàn " + (tableNumber != null ? tableNumber : "Mang về") + " ngâm quầy quá lâu!")
+                                .build();
+                        staffCallRepository.save(call);
+                    }
+                } catch (Exception e) {
+                    log.error("Lỗi khi gửi cảnh báo Kafka cho bàn {}. Sẽ thử lại ở chu kỳ sau.", tableNumber, e);
+                    // Bỏ qua update DB để lần sau quét lại
+                }
             }
         });
     }
@@ -108,7 +134,7 @@ public class ServerJobScheduler {
      * Spillover = broadcast toàn bộ Server (không chỉ zone) để xử lý.
      */
     @Scheduled(fixedDelay = 30_000)
-    @Transactional(readOnly = true)
+    @Transactional
     public void sweepSpilloverCalls() {
         LocalDateTime threshold = LocalDateTime.now().minusSeconds(CALL_SPILLOVER_SECONDS);
         List<StaffCall> staleCalls = staffCallRepository.findPendingCallsOlderThan(threshold);
@@ -127,10 +153,67 @@ public class ServerJobScheduler {
                     .alertAt(LocalDateTime.now())
                     .build();
 
-            kafkaTemplate.send("staff.call.spillover", call.getId().toString(), event);
-            log.warn("Sweeper [SPILLOVER]: StaffCall {} (bàn {}) đã chờ {} giây!",
-                    call.getId(), call.getTable() != null ? call.getTable().getNumber() : "N/A",
-                    pendingSeconds);
+            try {
+                kafkaTemplate.send("staff.call.spillover", call.getId().toString(), event).get();
+                log.warn("Sweeper [SPILLOVER]: StaffCall {} (bàn {}) đã chờ {} giây!",
+                        call.getId(), call.getTable() != null ? call.getTable().getNumber() : "N/A",
+                        pendingSeconds);
+                
+                call.setSpilloverSent(true);
+            } catch (Exception e) {
+                log.error("Lỗi khi gửi spillover Kafka cho cuộc gọi {}. Sẽ thử lại ở chu kỳ sau.", call.getId(), e);
+            }
+        });
+        staffCallRepository.saveAll(staleCalls);
+    }
+
+    /**
+     * Quét các món ăn đang bị ngâm trong bếp quá lâu (SLA Kitchen Alert).
+     * Chạy mỗi 60 giây.
+     */
+    @Scheduled(fixedDelay = 60_000)
+    public void sweepOverdueKitchen() {
+        LocalDateTime threshold = LocalDateTime.now().minusMinutes(20);
+        List<OrderTicketItem> overdueItems = ticketItemRepository.findOverdueKitchenItems(threshold);
+
+        if (overdueItems.isEmpty()) return;
+
+        Map<Order, List<OrderTicketItem>> byOrder = overdueItems.stream()
+                .filter(item -> item.getTicket() != null && item.getTicket().getOrder() != null)
+                .collect(Collectors.groupingBy(item -> item.getTicket().getOrder()));
+
+        byOrder.forEach((order, items) -> {
+            Integer tableNumber = order.getTable() != null ? order.getTable().getNumber() : null;
+            List<UUID> urgentIds = items.stream().map(OrderTicketItem::getId).collect(Collectors.toList());
+
+            Map<String, Object> alert = new HashMap<>();
+            alert.put("tableNumber", tableNumber);
+            alert.put("zone", order.getTable() != null ? order.getTable().getZone() : "Takeaway");
+            alert.put("urgentItemIds", urgentIds);
+            alert.put("message", "Bếp ngâm món quá 20 phút!");
+            alert.put("alertAt", LocalDateTime.now().toString());
+
+            try {
+                String kafkaKey = order.getId().toString();
+                kafkaTemplate.send("kitchen.delay.alert", kafkaKey, alert);
+                log.warn("Sweeper [KITCHEN SLA]: Order {} (Bàn {}) có {} món bị ngâm trong bếp quá 20 phút!", order.getId(), tableNumber, urgentIds.size());
+
+                // Set alert sent to true to prevent spam
+                items.forEach(i -> i.setKitchenAlertSent(true));
+                ticketItemRepository.saveAll(items);
+
+                // Create StaffCall record to show on POS Bell
+                StaffCall call = StaffCall.builder()
+                        .session(order.getSession())
+                        .table(order.getTable())
+                        .callType("KITCHEN_DELAY_ALERT")
+                        .status("PENDING")
+                        .message("Bàn " + (tableNumber != null ? tableNumber : "Mang về") + " trễ món bếp > 20p!")
+                        .build();
+                staffCallRepository.save(call);
+            } catch (Exception e) {
+                log.error("Lỗi khi gửi cảnh báo Bếp cho Order {}", order.getId(), e);
+            }
         });
     }
 

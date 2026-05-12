@@ -3,6 +3,7 @@ package com.fnb.kds.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "order_item_options", schema = "orders")
@@ -23,5 +24,5 @@ public class KdsOrderItemOption {
     private String optionName;
 
     @Column(name = "extra_price")
-    private java.math.BigDecimal extraPrice;
+    private BigDecimal extraPrice;
 }

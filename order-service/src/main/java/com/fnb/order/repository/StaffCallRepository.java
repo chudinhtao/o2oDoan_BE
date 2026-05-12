@@ -15,6 +15,7 @@ import java.util.UUID;
 public interface StaffCallRepository extends JpaRepository<StaffCall, UUID> {
     List<StaffCall> findByStatusOrderByCreatedAtDesc(String status);
     List<StaffCall> findBySessionId(UUID sessionId);
+    boolean existsBySessionIdAndCallTypeAndStatus(UUID sessionId, String callType, String status);
 
     /** Lấy các yêu cầu PENDING và ACCEPTED cho màn hình Server. */
     @Query("SELECT c FROM StaffCall c WHERE c.status IN ('PENDING', 'ACCEPTED') ORDER BY c.createdAt ASC")
@@ -28,7 +29,7 @@ public interface StaffCallRepository extends JpaRepository<StaffCall, UUID> {
             SELECT sc.* FROM orders.staff_calls sc
             JOIN orders.tables t ON sc.table_id = t.id
             WHERE sc.status IN ('PENDING', 'ACCEPTED')
-              AND (:zones IS NULL OR t.zone = ANY(CAST(:zones AS text[])))
+              AND (sc.is_spillover_sent = true OR :zones IS NULL OR t.zone = ANY(CAST(:zones AS text[])))
             ORDER BY sc.created_at ASC
             """, nativeQuery = true)
     List<StaffCall> findActiveServerCallsByZones(@Param("zones") String zones);
@@ -68,8 +69,8 @@ public interface StaffCallRepository extends JpaRepository<StaffCall, UUID> {
             @Param("acceptedAt") LocalDateTime acceptedAt
     );
 
-    /** Lấy các StaffCall PENDING quá :threshold (cho Sweeper spillover). */
-    @Query("SELECT c FROM StaffCall c WHERE c.status = 'PENDING' AND c.createdAt <= :threshold")
+    /** Lấy các StaffCall PENDING quá :threshold (cho Sweeper spillover) mà chưa gửi thông báo. */
+    @Query("SELECT c FROM StaffCall c WHERE c.status = 'PENDING' AND c.isSpilloverSent = false AND c.createdAt <= :threshold")
     List<StaffCall> findPendingCallsOlderThan(@Param("threshold") LocalDateTime threshold);
 
     @Modifying

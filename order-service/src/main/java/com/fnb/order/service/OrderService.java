@@ -28,6 +28,17 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import com.fnb.common.util.BundleMatcher;
+import com.fnb.common.util.PricingEngine;
+import com.fnb.order.dto.response.PosTableResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import static java.math.BigDecimal.ZERO;
+import java.util.Iterator;
+import java.util.Map.Entry;
+import java.util.UUID;
+import org.springframework.util.StringUtils;
 
 @Slf4j
 @Service
@@ -55,6 +66,10 @@ public class OrderService {
         if (!"ACTIVE".equals(session.getStatus())) {
             throw new BusinessException("Session này đã đóng, không thể gọi món");
         }
+        
+        if (session.getExpiresAt() != null && session.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BusinessException("Phiên làm việc đã quá 4 tiếng. Vui lòng thanh toán hoặc nhờ nhân viên mở lại bàn!");
+        }
 
         TableInfo table = session.getTable();
 
@@ -79,8 +94,8 @@ public class OrderService {
                             .source("MANUAL")
                             .orderType(session.getTable() == null ? "TAKEAWAY" : "DINE_IN")
                             .status("OPEN")
-                            .subtotal(java.math.BigDecimal.ZERO)
-                            .total(java.math.BigDecimal.ZERO)
+                            .subtotal(ZERO)
+                            .total(ZERO)
                             .build();
                     return orderRepository.save(newOrder);
                 });
@@ -109,7 +124,9 @@ public class OrderService {
                     .orderId(order.getId())
                     .status("OPEN")
                     .sessionToken(sessionToken)
-                    .tableNumber(table.getNumber() != null ? String.valueOf(table.getNumber()) : null)
+                    .tableNumber(table != null && table.getNumber() != null ? String.valueOf(table.getNumber()) : null)
+                    .orderType(order.getOrderType())
+                    .orderIdentifier(buildOrderIdentifier(order))
                     .build());
         }
 
@@ -211,6 +228,8 @@ public class OrderService {
                 .note(ticket.getNote())
                 .createdAt(ticket.getCreatedAt() != null ? ticket.getCreatedAt() : LocalDateTime.now())
                 .items(eventItems)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .build();
 
         // Push via Spring Event (để TransactionalEventListener xử lý)
@@ -223,10 +242,10 @@ public class OrderService {
         TableSession session = sessionRepository.findBySessionToken(sessionToken)
                 .orElseThrow(() -> new ResourceNotFoundException("Session không hợp lệ hoặc đã hết hạn"));
 
-        // Cho phép xem đơn hàng nếu session còn ACTIVE hoặc vừa mới CLOSED (để khách xem hóa đơn sau thanh toán)
+        // Khách hàng và POS vẫn có quyền XEM bill kể cả khi đã hết hạn (để có thể quét mã hoặc ra quầy thanh toán).
+        // Chúng ta chỉ chặn thao tác ĐẶT MÓN (submitTicket) nếu session quá hạn.
         if (session.getExpiresAt() != null && session.getExpiresAt().isBefore(LocalDateTime.now())) {
-            log.info("Session {} đã hết hạn, trả về null cho getOrderBySessionToken", sessionToken);
-            return null;
+            log.warn("Session {} đã hết hạn, nhưng vẫn cho phép load đơn hàng để xử lý thanh toán.", sessionToken);
         }
 
         // 1. Cố gắng tìm đơn hàng OPEN hoặc PAYMENT_REQUESTED
@@ -251,8 +270,8 @@ public class OrderService {
                 .source("MANUAL")
                 .orderType(session.getTable() == null ? "TAKEAWAY" : "DINE_IN")
                 .status("OPEN")
-                .subtotal(java.math.BigDecimal.ZERO)
-                .total(java.math.BigDecimal.ZERO)
+                .subtotal(ZERO)
+                .total(ZERO)
                 .build();
         return mapToOrderResponse(orderRepository.save(newOrder));
     }
@@ -283,6 +302,9 @@ public class OrderService {
                             .station(item.getStation())
                             .createdAt(item.getCreatedAt())
                             .options(optDTOs)
+                            .isAlertSent(item.getIsAlertSent())
+                            .kitchenAlertSent(item.getKitchenAlertSent())
+                            .deliveryAlertSent(item.getDeliveryAlertSent())
                             .build();
                 }).collect(Collectors.toList());
 
@@ -347,6 +369,7 @@ public class OrderService {
                 .tableNumber(order.getTable() != null && order.getTable().getNumber() != null
                         ? String.valueOf(order.getTable().getNumber())
                         : null)
+                .orderIdentifier(buildOrderIdentifier(order))
                 .status(order.getStatus())
                 .source(order.getSource())
                 .orderType(order.getOrderType())
@@ -475,12 +498,14 @@ public class OrderService {
                 .tableNumber(order.getSession() != null && order.getSession().getTable() != null
                         ? order.getSession().getTable().getNumber()
                         : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
                 .build();
         applicationEventPublisher.publishEvent(event);
 
-        // Bắn thêm event cập nhật sơ đồ bàn POS (luôn bắn khi đổi tiền)
-        if (order.getTable() != null) {
+        // Chỉ bắn TableStatusUpdated cho đơn DINE_IN (TAKEAWAY không có bàn)
+        if ("DINE_IN".equals(order.getOrderType()) && order.getTable() != null) {
             applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
                     .tableId(order.getTable().getId())
                     .status(order.getTable().getStatus())
@@ -545,12 +570,14 @@ public class OrderService {
                 .tableNumber(order.getSession() != null && order.getSession().getTable() != null
                         ? order.getSession().getTable().getNumber()
                         : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
                 .build();
         applicationEventPublisher.publishEvent(event);
 
-        // Bắn thêm event cập nhật sơ đồ bàn POS (luôn bắn khi đổi tiền)
-        if (order.getTable() != null) {
+        // Chỉ bắn TableStatusUpdated cho đơn DINE_IN
+        if ("DINE_IN".equals(order.getOrderType()) && order.getTable() != null) {
             applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
                     .tableId(order.getTable().getId())
                     .status(order.getTable().getStatus())
@@ -606,12 +633,14 @@ public class OrderService {
                 .tableNumber(order.getSession() != null && order.getSession().getTable() != null
                         ? order.getSession().getTable().getNumber()
                         : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
                 .build();
         applicationEventPublisher.publishEvent(event);
 
-        // Bắn thêm event cập nhật sơ đồ bàn POS (luôn bắn khi hủy phiếu)
-        if (order.getTable() != null) {
+        // Chỉ bắn TableStatusUpdated cho đơn DINE_IN
+        if ("DINE_IN".equals(order.getOrderType()) && order.getTable() != null) {
             applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
                     .tableId(order.getTable().getId())
                     .status(order.getTable().getStatus())
@@ -699,12 +728,14 @@ public class OrderService {
                 .tableNumber(order.getSession() != null && order.getSession().getTable() != null
                         ? order.getSession().getTable().getNumber()
                         : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
                 .build();
         applicationEventPublisher.publishEvent(event);
 
-        // Bắn thêm event cập nhật sơ đồ bàn POS (luôn bắn khi khách tự hủy món)
-        if (order.getTable() != null) {
+        // Chỉ bắn TableStatusUpdated cho đơn DINE_IN
+        if ("DINE_IN".equals(order.getOrderType()) && order.getTable() != null) {
             applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
                     .tableId(order.getTable().getId())
                     .status(order.getTable().getStatus())
@@ -769,12 +800,14 @@ public class OrderService {
                 .tableNumber(order.getSession() != null && order.getSession().getTable() != null
                         ? order.getSession().getTable().getNumber()
                         : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
                 .build();
         applicationEventPublisher.publishEvent(event);
 
-        // Bắn thêm event cập nhật sơ đồ bàn POS (luôn bắn khi khách tự hủy phiếu)
-        if (order.getTable() != null) {
+        // Chỉ bắn TableStatusUpdated cho đơn DINE_IN
+        if ("DINE_IN".equals(order.getOrderType()) && order.getTable() != null) {
             applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
                     .tableId(order.getTable().getId())
                     .status(order.getTable().getStatus())
@@ -888,6 +921,8 @@ public class OrderService {
                         .tableNumber(order.getSession() != null && order.getSession().getTable() != null
                                 ? order.getSession().getTable().getNumber()
                                 : null)
+                        .orderType(order.getOrderType())
+                        .orderIdentifier(buildOrderIdentifier(order))
                         .updatedAt(LocalDateTime.now())
                         .build();
                 applicationEventPublisher.publishEvent(event);
@@ -913,22 +948,22 @@ public class OrderService {
         // Validate Mixed Payment total against Order total
         if ("MIXED".equals(paymentMethod) && paymentDetail != null) {
             try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                com.fasterxml.jackson.databind.JsonNode rootNode = mapper.readTree(paymentDetail);
-                java.math.BigDecimal totalMixed = java.math.BigDecimal.ZERO;
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode rootNode = mapper.readTree(paymentDetail);
+                BigDecimal totalMixed = ZERO;
                 
                 if (rootNode.isObject()) {
-                    java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> fields = rootNode.fields();
+                    Iterator<Entry<String, JsonNode>> fields = rootNode.fields();
                     while (fields.hasNext()) {
-                        java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> field = fields.next();
+                        Entry<String, JsonNode> field = fields.next();
                         if (field.getValue().isNumber()) {
-                            totalMixed = totalMixed.add(new java.math.BigDecimal(field.getValue().asText()));
+                            totalMixed = totalMixed.add(new BigDecimal(field.getValue().asText()));
                         }
                     }
                 } else if (rootNode.isArray()) {
-                    for (com.fasterxml.jackson.databind.JsonNode node : rootNode) {
+                    for (JsonNode node : rootNode) {
                         if (node.has("amount") && node.get("amount").isNumber()) {
-                            totalMixed = totalMixed.add(new java.math.BigDecimal(node.get("amount").asText()));
+                            totalMixed = totalMixed.add(new BigDecimal(node.get("amount").asText()));
                         }
                     }
                 }
@@ -937,7 +972,7 @@ public class OrderService {
                 if (totalMixed.compareTo(order.getTotal()) != 0) {
                     throw new BusinessException("Tổng số tiền thanh toán hỗn hợp (" + totalMixed + ") không khớp với tổng hóa đơn (" + order.getTotal() + ")");
                 }
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            } catch (JsonProcessingException e) {
                 log.error("Lỗi parse paymentDetail: {}", e.getMessage());
                 throw new BusinessException("Định dạng dữ liệu thanh toán không hợp lệ!");
             }
@@ -979,27 +1014,34 @@ public class OrderService {
             }
         }
 
+        String orderIdentifier = buildOrderIdentifier(order);
         OrderPaidEvent paidEvent = OrderPaidEvent.builder()
                 .orderId(order.getId())
                 .tableId(table != null ? table.getId() : null)
                 .tableNumber(table != null ? table.getNumber() : null)
                 .sessionToken(session != null ? session.getSessionToken() : null)
                 .paidAt(LocalDateTime.now())
+                .orderType(order.getOrderType())
+                .orderIdentifier(orderIdentifier)
                 .build();
         applicationEventPublisher.publishEvent(paidEvent);
 
-        if (releaseTable && table != null) {
+        // Luôn bắn OrderStatusUpdated (cả DINE_IN lẫn TAKEAWAY) để POS/Client theo dõi
+        applicationEventPublisher.publishEvent(OrderStatusUpdatedEvent.builder()
+                .orderId(order.getId())
+                .status("PAID")
+                .sessionToken(session != null ? session.getSessionToken() : null)
+                .tableNumber(table != null && table.getNumber() != null ? String.valueOf(table.getNumber()) : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(orderIdentifier)
+                .build());
+
+        // Chỉ cập nhật sơ đồ bàn khi releaseTable và là đơn DINE_IN
+        if (releaseTable && "DINE_IN".equals(order.getOrderType()) && table != null) {
             applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
                     .tableId(table.getId())
                     .status("CLEANING")
                     .sessionToken(session != null ? session.getSessionToken() : null)
-                    .build());
-
-            applicationEventPublisher.publishEvent(OrderStatusUpdatedEvent.builder()
-                    .orderId(order.getId())
-                    .status("PAID")
-                    .sessionToken(session != null ? session.getSessionToken() : null)
-                    .tableNumber(table.getNumber() != null ? String.valueOf(table.getNumber()) : null)
                     .build());
         }
 
@@ -1018,7 +1060,7 @@ public class OrderService {
     }
 
     @Transactional
-    public void applyPromotionById(java.util.UUID orderId, String code) {
+    public void applyPromotionById(UUID orderId, String code) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hóa đơn: " + orderId));
         
@@ -1131,11 +1173,11 @@ public class OrderService {
                     priceMap.put(itemId, item.getUnitPrice());
 
                     var itemPromos = productAutoPromos.stream()
-                            .filter(p -> com.fnb.common.util.PricingEngine.isApplicable(p.targets(), itemId, categoryId))
+                            .filter(p -> PricingEngine.isApplicable(p.targets(), itemId, categoryId))
                             .toList();
 
                     if (!itemPromos.isEmpty()) {
-                        var bestFlash = com.fnb.common.util.PricingEngine.selectBestPromotion(itemPromos, item.getUnitPrice());
+                        var bestFlash = PricingEngine.selectBestPromotion(itemPromos, item.getUnitPrice());
                         flashSaleBenefitMap.put(itemId, bestFlash.getDiscountAmount());
                     } else {
                         flashSaleBenefitMap.put(itemId, BigDecimal.ZERO);
@@ -1153,13 +1195,13 @@ public class OrderService {
                         for (var bi : rule.getBundleItems()) {
                             bBase = bBase.add(priceMap.getOrDefault(bi.getItemId(), BigDecimal.ZERO).multiply(BigDecimal.valueOf(bi.getQuantity())));
                         }
-                        BigDecimal bundleDiscount = com.fnb.common.util.PricingEngine.calculateRawDiscount(
+                        BigDecimal bundleDiscount = PricingEngine.calculateRawDiscount(
                                 bBase, rule.getDiscountType(), rule.getDiscountValue(), rule.getMaxDiscount());
                         return bundleDiscount.compareTo(totalFlashBenefit) >= 0;
                     }).toList();
 
                     if (!profitableBundles.isEmpty()) {
-                        var matchedResults = com.fnb.common.util.BundleMatcher.matchBundles(cartMap, profitableBundles, priceMap);
+                        var matchedResults = BundleMatcher.matchBundles(cartMap, profitableBundles, priceMap);
                         for (var result : matchedResults) {
                             automatedDiscount = automatedDiscount.add(result.getTotalDiscount());
                             hasAutoDiscount = true;
@@ -1176,11 +1218,11 @@ public class OrderService {
                     UUID itemId = item.getMenuItemId();
                     UUID categoryId = itemCategoryMap.get(itemId);
                     var itemPromos = productAutoPromos.stream()
-                            .filter(p -> com.fnb.common.util.PricingEngine.isApplicable(p.targets(), itemId, categoryId))
+                            .filter(p -> PricingEngine.isApplicable(p.targets(), itemId, categoryId))
                             .toList();
 
                     if (!itemPromos.isEmpty()) {
-                        var bestResult = com.fnb.common.util.PricingEngine.selectBestPromotion(itemPromos, item.getUnitPrice());
+                        var bestResult = PricingEngine.selectBestPromotion(itemPromos, item.getUnitPrice());
                         if (bestResult.getPromotion() != null) {
                             automatedDiscount = automatedDiscount.add(bestResult.getDiscountAmount().multiply(BigDecimal.valueOf(remainingQty)));
                             hasAutoDiscount = true;
@@ -1197,10 +1239,10 @@ public class OrderService {
                         .toList();
 
                 if (!orderAutoPromos.isEmpty()) {
-                    var bestResult = com.fnb.common.util.PricingEngine.selectBestPromotion(orderAutoPromos, subtotalAfterL0L1);
+                    var bestResult = PricingEngine.selectBestPromotion(orderAutoPromos, subtotalAfterL0L1);
                     if (bestResult.getPromotion() != null) {
                         if (Boolean.FALSE.equals(bestResult.getPromotion().stackable())) {
-                            BigDecimal standAloneDiscount = com.fnb.common.util.PricingEngine.calculateRawDiscount(
+                            BigDecimal standAloneDiscount = PricingEngine.calculateRawDiscount(
                                 rawSubtotal, bestResult.getPromotion().discountType(), 
                                 bestResult.getPromotion().discountValue(), bestResult.getPromotion().maxDiscount()
                             );
@@ -1230,7 +1272,7 @@ public class OrderService {
             } else {
                 if (Boolean.FALSE.equals(order.getIsStackable())) {
                     // NON-STACKABLE: So sánh với Auto Discount, cái nào lớn hơn thì lấy
-                    BigDecimal rawCouponDiscount = com.fnb.common.util.PricingEngine.calculateRawDiscount(
+                    BigDecimal rawCouponDiscount = PricingEngine.calculateRawDiscount(
                         rawSubtotal, order.getDiscountType(), order.getDiscountRate(), order.getMaxDiscountValue()
                     ).min(rawSubtotal);
                     
@@ -1246,7 +1288,7 @@ public class OrderService {
                     }
                 } else {
                     // STACKABLE: Tính trên giá trị phần dư sau khi giảm auto (Tránh lỗ)
-                    couponDiscount = com.fnb.common.util.PricingEngine.calculateRawDiscount(
+                    couponDiscount = PricingEngine.calculateRawDiscount(
                         rawSubtotal.subtract(automatedDiscount), 
                         order.getDiscountType(), order.getDiscountRate(), order.getMaxDiscountValue()
                     ).min(rawSubtotal.subtract(automatedDiscount));
@@ -1259,7 +1301,7 @@ public class OrderService {
         order.setTotal(finalTotal);
     }
 
-    // Đã thay thế bởi com.fnb.common.util.PricingEngine
+    // Đã thay thế bởi PricingEngine
 
     @Transactional
     public void requestPayment(String sessionToken, String paymentMethod) {
@@ -1321,6 +1363,8 @@ public class OrderService {
                 .status("PAYMENT_REQUESTED")
                 .sessionToken(sessionToken)
                 .tableNumber(table != null && table.getNumber() != null ? String.valueOf(table.getNumber()) : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .build());
 
         log.info("Khách bàn {} yêu cầu thanh toán bằng {}", table != null ? table.getNumber() : "Mang về", paymentMethod);
@@ -1395,182 +1439,7 @@ public class OrderService {
         }
     }
 
-    @Transactional
-    public String createTakeawayOrder(TakeawayOrderRequest request, String cashierUsername) {
-        log.info("Nhận yêu cầu tạo đơn Takeaway từ thu ngân: {}", cashierUsername);
 
-        if (request.getItems() == null || request.getItems().isEmpty()) {
-            throw new BusinessException("Danh sách món không được để trống.");
-        }
-
-        // 1. Tạo Order (MANUAL + PAID vì khách trả tiền luôn)
-        Order order = Order.builder()
-                .session(null)
-                .table(null)
-                .source("MANUAL")
-                .orderType("TAKEAWAY")
-                .status("PAID")
-                .subtotal(BigDecimal.ZERO)
-                .total(BigDecimal.ZERO)
-                .build();
-        orderRepository.save(order);
-
-        OrderTicket ticket = OrderTicket.builder()
-                .order(order)
-                .seqNumber(1)
-                .status("PENDING")
-                .note(request.getNote())
-                .createdBy("CASHIER")
-                .build();
-
-        BigDecimal ticketTotal = BigDecimal.ZERO;
-        List<OrderTicketItem> ticketItems = new ArrayList<>();
-
-        // 3. Xử lý Items & xác thực giá/options qua MenuServiceClient
-        for (var reqItem : request.getItems()) {
-            var res = menuServiceClient.getMenuItemById(reqItem.getMenuItemId());
-            if (!res.isSuccess() || res.getData() == null) {
-                throw new BusinessException("Món ăn không tồn tại hoặc lỗi đồng bộ menu");
-            }
-            var menuItemInfo = res.getData();
-            if (menuItemInfo.isActive() != null && !menuItemInfo.isActive() ||
-                    menuItemInfo.isAvailable() != null && !menuItemInfo.isAvailable()) {
-                throw new BusinessException("Rất tiếc, món " + menuItemInfo.name() + " hiện đang ngừng phục vụ.");
-            }
-
-            // Giá gốc — discount được tính bởi Pricing Engine sau
-            BigDecimal actualUnitPrice = menuItemInfo.basePrice();
-
-            OrderTicketItem ticketItem = OrderTicketItem.builder()
-                    .ticket(ticket)
-                    .menuItemId(reqItem.getMenuItemId())
-                    .itemName(menuItemInfo.name())
-                    .unitPrice(actualUnitPrice)
-                    .quantity(reqItem.getQuantity())
-                    .note(reqItem.getNote())
-                    .station(menuItemInfo.station())
-                    .status("PENDING")
-                    .build();
-
-            List<OrderItemOption> itemOptions = new ArrayList<>();
-            BigDecimal optionTotal = BigDecimal.ZERO;
-
-            if (reqItem.getOptions() != null && !reqItem.getOptions().isEmpty()) {
-                for (var optReq : reqItem.getOptions()) {
-                    MenuServiceClient.OptionDetail matchedOption = null;
-                    if (menuItemInfo.optionGroups() != null) {
-                        for (var group : menuItemInfo.optionGroups()) {
-                            if (group.options() != null) {
-                                for (var opt : group.options()) {
-                                    if (opt.id().equals(optReq.getOptionId())) {
-                                        matchedOption = opt;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (matchedOption != null)
-                                break;
-                        }
-                    }
-
-                    if (matchedOption == null) {
-                        throw new BusinessException("Tùy chọn không tồn tại hoặc đã bị xóa!");
-                    }
-
-                    if (matchedOption.isAvailable() != null && !matchedOption.isAvailable()) {
-                        throw new BusinessException(
-                                "Tùy chọn " + matchedOption.name() + " hiện đang tạm ngưng kinh doanh.");
-                    }
-
-                    BigDecimal extraPrice = matchedOption.extraPrice() != null ? matchedOption.extraPrice()
-                            : BigDecimal.ZERO;
-                    OrderItemOption option = OrderItemOption.builder()
-                            .ticketItem(ticketItem)
-                            .optionName(matchedOption.name())
-                            .extraPrice(extraPrice)
-                            .build();
-
-                    itemOptions.add(option);
-                    optionTotal = optionTotal.add(extraPrice);
-                }
-            }
-
-            ticketItem.setOptions(itemOptions);
-            ticketItems.add(ticketItem);
-
-            BigDecimal itemCost = actualUnitPrice.add(optionTotal)
-                    .multiply(BigDecimal.valueOf(reqItem.getQuantity()));
-            ticketTotal = ticketTotal.add(itemCost);
-        }
-
-        ticket.setItems(ticketItems);
-        ticketRepository.save(ticket);
-
-        // Đảm bảo quan hệ hai chiều trong bộ nhớ
-        if (order.getTickets() == null) {
-            order.setTickets(new ArrayList<>());
-        }
-        order.getTickets().add(ticket);
-
-        order.setSubtotal(ticketTotal);
-        order.setTotal(ticketTotal);
-
-        if (org.springframework.util.StringUtils.hasText(request.getPromotionCode())) {
-            try {
-                executeApplyPromotion(order, request.getPromotionCode());
-            } catch (Exception e) {
-                log.warn("Lỗi khi áp dụng mã cho Takeaway: {}", e.getMessage());
-                // Tiếp tục tạo đơn nhưng không có khuyến mãi nếu mã lỗi? 
-                // Hoặc throw tùy business. Ở đây ta throw để báo lỗi mã sai cho nhân viên.
-                throw new BusinessException("Mã giảm giá không hợp lệ cho đơn Takeaway: " + e.getMessage());
-            }
-        }
-
-        orderRepository.save(order);
-
-        // 4. Bắn OrderCreatedEvent cho KDS bếp
-        List<OrderCreatedItemEvent> eventItems = ticketItems.stream().map(ti -> {
-            List<OrderCreatedOptionEvent> eventOptions = ti.getOptions().stream()
-                    .map(opt -> OrderCreatedOptionEvent.builder()
-                            .optionName(opt.getOptionName())
-                            .extraPrice(opt.getExtraPrice())
-                            .build())
-                    .collect(Collectors.toList());
-
-            return OrderCreatedItemEvent.builder()
-                    .menuItemId(ti.getMenuItemId())
-                    .itemName(ti.getItemName())
-                    .quantity(ti.getQuantity())
-                    .note(ti.getNote())
-                    .station(ti.getStation())
-                    .unitPrice(ti.getUnitPrice())
-                    .options(eventOptions)
-                    .build();
-        }).collect(Collectors.toList());
-
-        OrderCreatedEvent createdEvent = OrderCreatedEvent.builder()
-                .orderId(order.getId())
-                .ticketId(ticket.getId())
-                .tableNumber(null) // Hiển thị trên KDS
-                .sessionToken(null)
-                .note(ticket.getNote())
-                .createdAt(ticket.getCreatedAt() != null ? ticket.getCreatedAt() : LocalDateTime.now())
-                .items(eventItems)
-                .build();
-        applicationEventPublisher.publishEvent(createdEvent);
-
-        // 5. Bắn OrderPaidEvent để ghi nhận doanh thu
-        OrderPaidEvent paidEvent = OrderPaidEvent.builder()
-                .orderId(order.getId())
-                .tableId(null)
-                .tableNumber(null)
-                .sessionToken(null)
-                .paidAt(LocalDateTime.now())
-                .build();
-        applicationEventPublisher.publishEvent(paidEvent);
-
-        return "Tạo đơn mang đi thành công";
-    }
 
     private void checkAndAutoCancelEmptyOrder(Order order, String reason) {
         if ("CANCELLED".equals(order.getStatus()) || "PAID".equals(order.getStatus())) {
@@ -1605,11 +1474,30 @@ public class OrderService {
                 .status("CANCELLED")
                 .sessionToken(session.getSessionToken())
                 .tableNumber(order.getTable() != null && order.getTable().getNumber() != null ? String.valueOf(order.getTable().getNumber()) : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
                 .build());
     }
 
     @Transactional(readOnly = true)
-    public List<com.fnb.order.dto.response.PosTableResponse> getActiveTakeawayOrders() {
+    public List<PosTableResponse> getActiveTakeawayOrders() {
         return orderRepository.findActiveTakeawayOrders();
     }
+
+    /**
+     * Sinh orderIdentifier null-safe:
+     *  - DINE_IN  → "Bàn 12"
+     *  - Các loại khác → "Mang Đi #<4 ký tự đầu ID>"
+     */
+    private String buildOrderIdentifier(Order order) {
+        if ("DINE_IN".equals(order.getOrderType()) && order.getTable() != null
+                && order.getTable().getNumber() != null) {
+            return "Bàn " + order.getTable().getNumber();
+        }
+        String shortId = order.getId() != null
+                ? order.getId().toString().replace("-", "").substring(0, 4).toUpperCase()
+                : "????";
+        return "Mang Đi #" + shortId;
+    }
 }
+

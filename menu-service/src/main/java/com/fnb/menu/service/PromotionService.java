@@ -20,6 +20,10 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import com.fnb.menu.entity.Category;
+import com.fnb.menu.entity.MenuItem;
+import com.fnb.menu.repository.CategoryRepository;
+import com.fnb.menu.repository.MenuItemRepository;
 
 @Slf4j
 @Service
@@ -27,8 +31,8 @@ import java.util.UUID;
 public class PromotionService {
 
     private final PromotionRepository promotionRepository;
-    private final com.fnb.menu.repository.MenuItemRepository menuItemRepository;
-    private final com.fnb.menu.repository.CategoryRepository categoryRepository;
+    private final MenuItemRepository menuItemRepository;
+    private final CategoryRepository categoryRepository;
 
     // =========================================================
     // ADMIN: CRUD
@@ -322,9 +326,9 @@ public class PromotionService {
                 .targets(p.getTargets().stream().map(t -> {
                     String tName = "Unknown";
                     if ("PRODUCT".equals(t.getTargetType())) {
-                        tName = menuItemRepository.findById(t.getTargetId()).map(com.fnb.menu.entity.MenuItem::getName).orElse(tName);
+                        tName = menuItemRepository.findById(t.getTargetId()).map(MenuItem::getName).orElse(tName);
                     } else if ("CATEGORY".equals(t.getTargetType())) {
-                        tName = categoryRepository.findById(t.getTargetId()).map(com.fnb.menu.entity.Category::getName).orElse(tName);
+                        tName = categoryRepository.findById(t.getTargetId()).map(Category::getName).orElse(tName);
                     }
                     return PromotionResponse.TargetResponse.builder()
                             .id(t.getId()).targetType(t.getTargetType()).targetId(t.getTargetId())
@@ -332,7 +336,7 @@ public class PromotionService {
                             .build();
                 }).toList())
                 .bundleItems(p.getEntityBundleItems().stream().map(b -> {
-                    String bName = menuItemRepository.findById(b.getItemId()).map(com.fnb.menu.entity.MenuItem::getName).orElse("Unknown");
+                    String bName = menuItemRepository.findById(b.getItemId()).map(MenuItem::getName).orElse("Unknown");
                     return PromotionResponse.BundleItemResponse.builder()
                             .id(b.getId()).itemId(b.getItemId())
                             .itemName(bName)

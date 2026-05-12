@@ -14,6 +14,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import com.fnb.order.dto.response.PosTableResponse;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/tables")
@@ -39,7 +41,7 @@ public class TableController {
     /** GET /api/tables/pos – Danh sách bàn cho màn hình POS (không phân trang, kèm session) */
     @GetMapping("/pos")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    public ResponseEntity<ApiResponse<java.util.List<com.fnb.order.dto.response.PosTableResponse>>> getAllTablesForPos() {
+    public ResponseEntity<ApiResponse<List<PosTableResponse>>> getAllTablesForPos() {
         return ResponseEntity.ok(ApiResponse.ok(tableService.getAllForPos()));
     }
 
@@ -82,7 +84,7 @@ public class TableController {
      * Không cần phân quyền (Server cũng cần gọi endpoint này).
      */
     @GetMapping("/zones")
-    public ResponseEntity<ApiResponse<java.util.List<String>>> getDistinctZones() {
+    public ResponseEntity<ApiResponse<List<String>>> getDistinctZones() {
         return ResponseEntity.ok(ApiResponse.ok(tableService.getDistinctZones()));
     }
 }

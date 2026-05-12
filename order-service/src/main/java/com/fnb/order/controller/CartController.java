@@ -7,6 +7,7 @@ import com.fnb.order.service.CartService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import com.fnb.order.dto.request.UpdateCartRequest;
 
 @RestController
 @RequestMapping("/api/orders/cart")
@@ -34,7 +35,7 @@ public class CartController {
     public ApiResponse<CartDto> updateItemQuantity(
             @RequestHeader("X-Session-Token") String sessionToken,
             @PathVariable String cartItemId,
-            @Valid @RequestBody com.fnb.order.dto.request.UpdateCartRequest request) {
+            @Valid @RequestBody UpdateCartRequest request) {
         return ApiResponse.ok("Đã cập nhật số lượng", cartService.updateItemQuantity(sessionToken, cartItemId, request.getQuantity(), request.getNote()));
     }
 

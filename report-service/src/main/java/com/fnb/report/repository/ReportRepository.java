@@ -50,8 +50,8 @@ public class ReportRepository {
         String orderClause = "REVENUE".equalsIgnoreCase(sortBy) ? "revenue DESC" : "total_sold DESC";
         String sql = """
             SELECT oti.item_name, SUM(oti.quantity) as total_sold, SUM(oti.unit_price * oti.quantity) as revenue
-            FROM order_ticket_items oti
-            JOIN order_tickets ot ON oti.ticket_id = ot.id
+            FROM orders.order_ticket_items oti
+            JOIN orders.order_tickets ot ON oti.ticket_id = ot.id
             JOIN orders o ON ot.order_id = o.id
             WHERE o.status = 'PAID'
               AND oti.status NOT IN ('CANCELLED', 'RETURNED')
@@ -138,7 +138,7 @@ public class ReportRepository {
         );
     }
 
-    // F5: Thêm zone, capacity, avgSessionMinutes qua JOIN tables + table_sessions
+    // F5: Thêm zone, capacity, avgSessionMinutes qua JOIN orders.tables + table_sessions
     public List<TableUsageDto> getTableUsage(LocalDate from, LocalDate to) {
         String sql = """
             SELECT t.number as table_number,
@@ -152,9 +152,9 @@ public class ReportRepository {
                            EXTRACT(EPOCH FROM (ts.closed_at - ts.opened_at)) / 60
                        ), 1
                    ) as avg_session_minutes
-            FROM orders o
-            JOIN tables t ON o.table_id = t.id
-            LEFT JOIN table_sessions ts ON o.session_id = ts.id
+            FROM orders.orders o
+            JOIN orders.tables t ON o.table_id = t.id
+            LEFT JOIN orders.table_sessions ts ON o.session_id = ts.id
             WHERE o.status = 'PAID' AND DATE(COALESCE(o.paid_at, o.updated_at)) BETWEEN ? AND ?
             GROUP BY t.id, t.number, t.name, t.zone, t.capacity
             ORDER BY total_revenue DESC
@@ -180,23 +180,23 @@ public class ReportRepository {
     public ShiftReportDto getCashierShiftReport(LocalDate shiftDate) {
         // Paid orders
         Long totalOrders = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM orders WHERE status = 'PAID' AND DATE(COALESCE(paid_at, updated_at)) = ?",
+            "SELECT COUNT(*) FROM orders.orders WHERE status = 'PAID' AND DATE(COALESCE(paid_at, updated_at)) = ?",
             Long.class, Date.valueOf(shiftDate));
         if (totalOrders == null) totalOrders = 0L;
 
         BigDecimal totalRevenue = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(SUM(total), 0) FROM orders WHERE status = 'PAID' AND DATE(COALESCE(paid_at, updated_at)) = ?",
+            "SELECT COALESCE(SUM(total), 0) FROM orders.orders WHERE status = 'PAID' AND DATE(COALESCE(paid_at, updated_at)) = ?",
             BigDecimal.class, Date.valueOf(shiftDate));
         if (totalRevenue == null) totalRevenue = BigDecimal.ZERO;
 
         // Cancelled orders stats
         Long cancelledOrders = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM orders WHERE status = 'CANCELLED' AND DATE(COALESCE(updated_at, created_at)) = ?",
+            "SELECT COUNT(*) FROM orders.orders WHERE status = 'CANCELLED' AND DATE(COALESCE(updated_at, created_at)) = ?",
             Long.class, Date.valueOf(shiftDate));
         if (cancelledOrders == null) cancelledOrders = 0L;
 
         BigDecimal cancelledRevenue = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(SUM(total), 0) FROM orders WHERE status = 'CANCELLED' AND DATE(COALESCE(updated_at, created_at)) = ?",
+            "SELECT COALESCE(SUM(total), 0) FROM orders.orders WHERE status = 'CANCELLED' AND DATE(COALESCE(updated_at, created_at)) = ?",
             BigDecimal.class, Date.valueOf(shiftDate));
         if (cancelledRevenue == null) cancelledRevenue = BigDecimal.ZERO;
 
@@ -234,7 +234,7 @@ public class ReportRepository {
                    COALESCE(SUM(o.discount), 0) as total_discount_given,
                    SUM(o.total) as gross_revenue,
                    ROUND(AVG(o.total), 0) as avg_order_value
-            FROM orders o
+            FROM orders.orders o
             WHERE o.status = 'PAID'
               AND o.promotion_code IS NOT NULL
               AND DATE(COALESCE(o.paid_at, o.updated_at)) BETWEEN ? AND ?
@@ -263,11 +263,11 @@ public class ReportRepository {
                    sc.call_type,
                    COUNT(sc.id) as call_count,
                    ROUND(AVG(
-                       EXTRACT(EPOCH FROM (sc.resolved_at - sc.called_at)) / 60
+                       EXTRACT(EPOCH FROM (sc.resolved_at - sc.created_at)) / 60
                    ), 1) as avg_resolve_minutes
-            FROM staff_calls sc
-            JOIN tables t ON sc.table_id = t.id
-            WHERE DATE(sc.called_at) BETWEEN ? AND ?
+            FROM orders.staff_calls sc
+            JOIN orders.tables t ON sc.table_id = t.id
+            WHERE DATE(sc.created_at) BETWEEN ? AND ?
             GROUP BY t.number, sc.call_type
             ORDER BY call_count DESC
             LIMIT 20
@@ -297,10 +297,10 @@ public class ReportRepository {
                    COUNT(CASE WHEN
                        EXTRACT(EPOCH FROM (oti.completed_at - oti.created_at)) / 60 > 15
                        THEN 1 END) as late_tickets
-            FROM order_ticket_items oti
-            JOIN order_tickets ot ON oti.ticket_id = ot.id
+            FROM orders.order_ticket_items oti
+            JOIN orders.order_tickets ot ON oti.ticket_id = ot.id
             JOIN orders o ON ot.order_id = o.id
-            WHERE oti.status = 'DONE'
+            WHERE oti.status = 'COMPLETED'
               AND oti.completed_at IS NOT NULL
               AND DATE(o.created_at) BETWEEN ? AND ?
             GROUP BY oti.item_name
@@ -331,19 +331,19 @@ public class ReportRepository {
     public List<CancelledOrderDrilldownDto> getCancelledOrderDrilldown(LocalDate from, LocalDate to) {
         // Tổng đơn trong kỳ (để tính tỷ lệ)
         Long totalOrders = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM orders WHERE DATE(COALESCE(created_at, updated_at)) BETWEEN ? AND ?",
+            "SELECT COUNT(*) FROM orders.orders WHERE DATE(COALESCE(created_at, updated_at)) BETWEEN ? AND ?",
             Long.class, Date.valueOf(from), Date.valueOf(to)
         );
         long total = totalOrders != null ? totalOrders : 1L;
 
         String sql = """
-            SELECT COALESCE(cancellation_reason, 'UNKNOWN') as cancellation_reason,
+            SELECT COALESCE(cancel_reason, 'UNKNOWN') as cancel_reason,
                    COUNT(id) as cancel_count,
                    COALESCE(SUM(total), 0) as cancelled_revenue
             FROM orders
             WHERE status = 'CANCELLED'
               AND DATE(COALESCE(updated_at, created_at)) BETWEEN ? AND ?
-            GROUP BY COALESCE(cancellation_reason, 'UNKNOWN')
+            GROUP BY COALESCE(cancel_reason, 'UNKNOWN')
             ORDER BY cancel_count DESC
             """;
 
@@ -354,7 +354,7 @@ public class ReportRepository {
                 long count = rs.getLong("cancel_count");
                 double rate = Math.round((double) count / totalFinal * 1000.0) / 10.0;
                 return CancelledOrderDrilldownDto.builder()
-                    .cancellationReason(rs.getString("cancellation_reason"))
+                    .cancellationReason(rs.getString("cancel_reason"))
                     .cancelCount(count)
                     .cancelledRevenue(rs.getBigDecimal("cancelled_revenue"))
                     .cancelRate(rate)

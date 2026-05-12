@@ -27,6 +27,7 @@ public class StaffCallService {
         private final StaffCallRepository staffCallRepository;
         private final TableSessionRepository sessionRepository;
         private final ApplicationEventPublisher applicationEventPublisher;
+        private final ServerDeliveryService serverDeliveryService;
 
         @Transactional
         public void createCall(String sessionToken, StaffCallRequest request) {
@@ -75,6 +76,11 @@ public class StaffCallService {
                 staffCallRepository.save(call);
                 log.info("Đã phục vụ xong yêu cầu {} cho bàn/mang về {} bởi nhân viên {}", 
                     call.getCallType(), call.getTable() != null ? call.getTable().getNumber() : "Mang về", resolvedBy);
+                    
+                // Tính năng chốt đơn Mang về tự động (Auto-complete Takeaway)
+                if ("TAKEAWAY_READY".equals(call.getCallType()) && call.getSession() != null) {
+                        serverDeliveryService.serveTakeawaySession(call.getSession().getId(), resolvedBy);
+                }
         }
 
         private StaffCallResponse mapToResponse(StaffCall call) {
@@ -87,6 +93,9 @@ public class StaffCallService {
                                 .status(call.getStatus())
                                 .createdAt(call.getCreatedAt())
                                 .resolvedAt(call.getResolvedAt())
+                                .isSpilloverSent(call.isSpilloverSent())
+                                .acceptedBy(call.getAcceptedBy())
+                                .acceptedAt(call.getAcceptedAt())
                                 .build();
         }
 }

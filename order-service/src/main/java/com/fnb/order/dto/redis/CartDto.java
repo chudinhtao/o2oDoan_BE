@@ -4,6 +4,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Data
 public class CartDto {
@@ -11,16 +12,16 @@ public class CartDto {
     private List<CartItemDto> items = new ArrayList<>();
     
     // Thuộc tính tiện ích tính tổng tiền giỏ hàng (Không lưu xuống DB, tự động tính realtime)
-    @com.fasterxml.jackson.annotation.JsonProperty("totalAmount")
+    @JsonProperty("totalAmount")
     private BigDecimal cartTotal = BigDecimal.ZERO;
     
-    @com.fasterxml.jackson.annotation.JsonProperty("originalTotal")
+    @JsonProperty("originalTotal")
     private BigDecimal originalTotal = BigDecimal.ZERO; // Tổng trước giảm giá
 
-    @com.fasterxml.jackson.annotation.JsonProperty("automatedDiscount")
+    @JsonProperty("automatedDiscount")
     private BigDecimal automatedDiscount = BigDecimal.ZERO; // Tổng cộng giảm giá tự động (Combo + Flash Sale)
 
-    @com.fasterxml.jackson.annotation.JsonProperty("appliedPromotions")
+    @JsonProperty("appliedPromotions")
     private List<String> appliedPromotions = new ArrayList<>();
 
     public void recalculateTotal() {

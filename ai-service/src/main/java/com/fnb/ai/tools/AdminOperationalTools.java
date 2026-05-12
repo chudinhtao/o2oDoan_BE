@@ -11,6 +11,9 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Bo cong cu Van Hanh cho Admin AI — Phase 1.5 + 2.4.
@@ -47,11 +50,11 @@ public class AdminOperationalTools {
             long inactive = total - active;
 
             // Phan loai theo role
-            java.util.Map<String, Long> byRole = staff.stream()
+            Map<String, Long> byRole = staff.stream()
                     .filter(StaffFeignClient.StaffRow::isActive)
-                    .collect(java.util.stream.Collectors.groupingBy(
+                    .collect(Collectors.groupingBy(
                             s -> s.role() != null ? s.role() : "UNKNOWN",
-                            java.util.stream.Collectors.counting()
+                            Collectors.counting()
                     ));
 
             StringBuilder sb = new StringBuilder();
@@ -200,7 +203,7 @@ public class AdminOperationalTools {
 
     // ─── Helper ──────────────────────────────────────────────────────────────
 
-    private String formatVnd(java.math.BigDecimal amount) {
+    private String formatVnd(BigDecimal amount) {
         if (amount == null) return "0d";
         return String.format("%,.0f", amount) + "d";
     }

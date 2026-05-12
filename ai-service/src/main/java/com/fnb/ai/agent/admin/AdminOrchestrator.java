@@ -11,6 +11,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Locale;
+import java.text.Normalizer;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * [PHASE 4 — ACTIVE] Multi-Agent Orchestrator cho Admin AI.
@@ -51,11 +56,11 @@ public class AdminOrchestrator {
         if (userMessage.length() > 15) {
             try {
                 dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(userMessage).content();
-                vectorString = java.util.Arrays.toString(embedding.vector());
+                vectorString = Arrays.toString(embedding.vector());
                 
                 // Siết chặt Cache cho Admin (0.02) để tránh sai số báo cáo
                 String cacheQuery = "SELECT answer FROM ai.admin_semantic_cache WHERE embedding <=> ?::vector < 0.02 AND created_at > NOW() - INTERVAL '15 minutes' LIMIT 1";
-                java.util.List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString);
+                List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString);
                 
                 if (!cached.isEmpty()) {
                     log.info("[ADMIN CACHE] ⚡ Cache HIT cho cau hoi: {}", userMessage);
@@ -67,7 +72,7 @@ public class AdminOrchestrator {
         }
 
         // 3. [Phase 4.1] Dung LLM Router de phan loai (Cache MISS)
-        String domain = routerAgent.routeIntent(java.util.UUID.randomUUID().toString(), userMessage).trim().toUpperCase();
+        String domain = routerAgent.routeIntent(UUID.randomUUID().toString(), userMessage).trim().toUpperCase();
         log.info("[ADMIN-ORCHESTRATOR] adminId={} | domain={} | msg={}", adminId, domain, userMessage);
 
         TimeContext tc = buildTimeContext();
@@ -136,8 +141,8 @@ public class AdminOrchestrator {
      */
     private String removeAccents(String text) {
         if (text == null) return "";
-        String normalized = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD);
-        return java.util.regex.Pattern.compile("\\p{InCombiningDiacriticalMarks}+").matcher(normalized)
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFD);
+        return Pattern.compile("\\p{InCombiningDiacriticalMarks}+").matcher(normalized)
                 .replaceAll("").replace("đ", "d").replace("Đ", "D");
     }
 

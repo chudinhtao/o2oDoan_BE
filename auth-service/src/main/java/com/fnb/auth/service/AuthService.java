@@ -10,8 +10,8 @@ import com.fnb.auth.repository.UserRepository;
 import com.fnb.common.exception.BusinessException;
 import com.fnb.common.exception.ResourceNotFoundException;
 import com.fnb.common.exception.UnauthorizedException;
-import com.fnb.common.security.JwtProperties;
-import com.fnb.common.security.JwtUtil;
+import com.fnb.auth.security.JwtProperties;
+import com.fnb.auth.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -32,43 +32,23 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final JwtProperties jwtProperties;
-
-    // TODO: Temporary block to enforce password reset
-    @jakarta.annotation.PostConstruct
-    public void forceUpdateAllPasswords() {
-        try {
-            String encoded = passwordEncoder.encode("123456");
-            java.util.List<User> users = userRepository.findAll();
-            for (User u : users) {
-                u.setPassword(encoded);
-            }
-            userRepository.saveAll(users);
-            log.info("FORCED PASSWORD RESET TO 123456 FOR ALL USERS ({})", users.size());
-        } catch (Exception e) {
-            log.error("Failed to force reset passwords", e);
-        }
-    }
+    private final TokenBlacklistService tokenBlacklistService;
 
     // ─── Login ───────────────────────────────────────────────────────────
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
-        // 1. Tìm user
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new BusinessException("Username hoặc password không đúng"));
 
-        // 2. Kiểm tra active
         if (!user.isActive()) {
             throw new BusinessException("Tài khoản đã bị vô hiệu hóa");
         }
 
-        // 3. Verify password bằng BCrypt
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new BusinessException("Username hoặc password không đúng");
         }
 
-        // 4. Tạo access token — claims chứa userId và role
-        //    Gateway sẽ đọc 2 claims này để forward X-User-Id, X-User-Role
         Map<String, Object> claims = Map.of(
                 "userId", user.getId().toString(),
                 "role",   user.getRole()
@@ -76,7 +56,7 @@ public class AuthService {
         String accessToken  = jwtUtil.generateToken(claims, user.getUsername());
         String refreshToken = jwtUtil.generateRefreshToken(user.getUsername());
 
-        // 5. Lưu refresh token vào DB (xóa cũ trước)
+        // Xóa tất cả refresh token cũ — đảm bảo 1 user / 1 phiên
         refreshTokenRepository.deleteByUserId(user.getId());
         refreshTokenRepository.save(RefreshToken.builder()
                 .user(user)
@@ -97,15 +77,13 @@ public class AuthService {
                 .build();
     }
 
-    // ─── Refresh Token ────────────────────────────────────────────────────
+    // ─── Refresh Token (với Rotation) ────────────────────────────────────
 
     @Transactional
     public LoginResponse refresh(String refreshToken) {
-        // 1. Tìm token trong DB
         RefreshToken stored = refreshTokenRepository.findByToken(refreshToken)
                 .orElseThrow(() -> new UnauthorizedException("Refresh token không hợp lệ"));
 
-        // 2. Kiểm tra hết hạn
         if (stored.isExpired()) {
             refreshTokenRepository.delete(stored);
             throw new UnauthorizedException("Refresh token đã hết hạn, vui lòng đăng nhập lại");
@@ -113,22 +91,49 @@ public class AuthService {
 
         User user = stored.getUser();
 
-        // 3. Tạo access token mới
         Map<String, Object> claims = Map.of(
                 "userId", user.getId().toString(),
                 "role",   user.getRole()
         );
-        String newAccessToken = jwtUtil.generateToken(claims, user.getUsername());
+        String newAccessToken  = jwtUtil.generateToken(claims, user.getUsername());
+
+        // Refresh Token Rotation: xóa token cũ, cấp token mới
+        String newRefreshToken = jwtUtil.generateRefreshToken(user.getUsername());
+        refreshTokenRepository.delete(stored);
+        refreshTokenRepository.save(RefreshToken.builder()
+                .user(user)
+                .token(newRefreshToken)
+                .expiresAt(LocalDateTime.now().plusSeconds(jwtProperties.getRefreshExpiry()))
+                .build());
+
+        log.debug("Token refreshed (rotation): userId={}", user.getId());
 
         return LoginResponse.builder()
                 .id(user.getId().toString())
                 .username(user.getUsername())
                 .accessToken(newAccessToken)
-                .refreshToken(refreshToken)
+                .refreshToken(newRefreshToken)
                 .role(user.getRole())
                 .fullName(user.getFullName())
                 .expiresIn(jwtProperties.getExpiry())
                 .build();
+    }
+
+    // ─── Logout ──────────────────────────────────────────────────────────
+
+    @Transactional
+    public void logout(String accessToken, String userId) {
+        // 1. Đưa Access Token vào Blacklist (Redis), TTL = thời gian sống còn lại
+        tokenBlacklistService.blacklist(accessToken);
+
+        // 2. Xóa Refresh Token khỏi DB
+        try {
+            refreshTokenRepository.deleteByUserId(UUID.fromString(userId));
+        } catch (IllegalArgumentException e) {
+            log.warn("Logout: userId không hợp lệ — {}", userId);
+        }
+
+        log.info("Logout success: userId={}", userId);
     }
 
     // ─── Me ──────────────────────────────────────────────────────────────
@@ -136,7 +141,6 @@ public class AuthService {
     public UserResponse getMe(String userId) {
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("User không tồn tại"));
-
         return toResponse(user);
     }
 

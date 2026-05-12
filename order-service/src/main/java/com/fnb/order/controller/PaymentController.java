@@ -8,6 +8,9 @@ import org.springframework.web.bind.annotation.*;
 import vn.payos.model.webhooks.Webhook;
 
 import java.util.Map;
+import java.math.BigDecimal;
+import java.util.UUID;
+import org.springframework.security.access.AccessDeniedException;
 
 @RestController
 @RequestMapping("/api/payments/payos")
@@ -23,18 +26,18 @@ public class PaymentController {
      */
     @PostMapping("/create")
     public ResponseEntity<?> createPaymentLink(
-            @RequestParam java.util.UUID orderId,
-            @RequestParam java.math.BigDecimal amount,
-            @RequestParam(required = false) java.math.BigDecimal cashAmount,
+            @RequestParam UUID orderId,
+            @RequestParam BigDecimal amount,
+            @RequestParam(required = false) BigDecimal cashAmount,
             @RequestParam String sessionToken) {
         
         log.info("Request create QR Pay for Order ID: {} with Session: {}", orderId, sessionToken);
         
         try {
             // Siết chặt bảo mật: Kiểm tra xem đơn hàng này có thuộc về Session của khách đang gọi không
-            String checkoutUrl = payOSPaymentService.createPaymentLink(orderId, sessionToken, amount, cashAmount);
-            return ResponseEntity.ok(Map.of("checkoutUrl", checkoutUrl));
-        } catch (org.springframework.security.access.AccessDeniedException e) {
+            java.util.Map<String, String> payosData = payOSPaymentService.createPaymentLink(orderId, sessionToken, amount, cashAmount);
+            return ResponseEntity.ok(payosData);
+        } catch (AccessDeniedException e) {
             return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

@@ -87,7 +87,12 @@ eureka:
 
 # ─── JWT ───────────────────────────────────────────────────────────────
 jwt:
-  secret: ${JWT_SECRET:}
+  secret: ${JWT_SECRET}
+
+# ─── Internal Service Auth ─────────────────────────────────────────────
+# Chỉ Gateway biết secret này — đính kèm vào mọi request forward xuống downstream
+internal:
+  secret: ${INTERNAL_SECRET}
 
 # ─── Logging ───────────────────────────────────────────────────────────
 logging:

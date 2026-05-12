@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -23,8 +24,8 @@ public class MenuItemResponse {
     private String imageUrl;
     private BigDecimal basePrice;
     private BigDecimal salePrice;
-    private java.time.LocalDateTime saleStartAt;
-    private java.time.LocalDateTime saleEndAt;
+    private LocalDateTime saleStartAt;
+    private LocalDateTime saleEndAt;
     private List<PromotionResponse.ScheduleResponse> schedules;
     private String station;
     
