@@ -23,6 +23,7 @@ public class MenuItemResponse {
     private String description;
     private String imageUrl;
     private BigDecimal basePrice;
+    private BigDecimal taxRate;
     private BigDecimal salePrice;
     private LocalDateTime saleStartAt;
     private LocalDateTime saleEndAt;

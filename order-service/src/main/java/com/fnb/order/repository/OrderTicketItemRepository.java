@@ -134,6 +134,15 @@ public interface OrderTicketItemRepository extends JpaRepository<OrderTicketItem
             @Param("startOfDay") LocalDateTime startOfDay
     );
 
+    @Query(value = "SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (served_at - COALESCE(completed_at, created_at)))), 0) " +
+            "FROM orders.order_ticket_items " +
+            "WHERE served_by = :serverId AND served_at >= :startOfDay",
+            nativeQuery = true)
+    double avgDeliveryTimeSeconds(
+            @Param("serverId") UUID serverId,
+            @Param("startOfDay") LocalDateTime startOfDay
+    );
+
     @Query(value = """
             SELECT oti.* FROM orders.order_ticket_items oti
             WHERE oti.status = 'PREPARING'

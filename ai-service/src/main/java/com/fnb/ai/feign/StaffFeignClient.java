@@ -19,7 +19,13 @@ import java.util.UUID;
 public interface StaffFeignClient {
 
     @GetMapping("/api/admin/staff")
-    ApiResponse<List<StaffRow>> getAllStaff();
+    ApiResponse<com.fnb.common.dto.PageResponse<StaffRow>> getAllStaff();
+
+    @GetMapping("/api/auth/admin/staff/schedules")
+    ApiResponse<?> getSchedules(@org.springframework.web.bind.annotation.RequestParam("from") String from, @org.springframework.web.bind.annotation.RequestParam("to") String to);
+
+    @GetMapping("/api/auth/admin/staff/attendance")
+    ApiResponse<?> getAttendanceLogs(@org.springframework.web.bind.annotation.RequestParam("from") String from, @org.springframework.web.bind.annotation.RequestParam("to") String to);
 
     // ─── Response Record ─────────────────────────────────────────────────────
 

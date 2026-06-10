@@ -13,7 +13,7 @@ spring:
 
   # ─── Database (Chọc thẳng vào DB dùng chung) ────────────────────────
   datasource:
-    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?TimeZone=UTC"
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?TimeZone=Asia/Ho_Chi_Minh"
     username: ${DB_USER:fnb_user}
     password: ${DB_PASS:fnb_pass}
     driver-class-name: org.postgresql.Driver
@@ -36,20 +36,29 @@ spring:
   flyway:
     enabled: false
 
-# ─── LangChain4j: Gemini via OpenAI-compatible API ───────────────
+# ─── LangChain4j: Multi-Model Configuration ──────────────────────
+# Smart Model: Gemini (Tư vấn, phân tích chính)
+# Fast Model: Groq (Rewriter, Router, Summarizer - siêu nhanh)
 langchain4j:
   open-ai:
     chat-model:
-      base-url: https://api.groq.com/openai/v1
-      api-key: ${GROQ_API_KEY}
-      model-name: meta-llama/llama-4-scout-17b-16e-instruct
-      temperature: 0.3
+      base-url: https://generativelanguage.googleapis.com/v1beta/openai/
+      api-key: ${GEMINI_API_KEY}
+      model-name: gemini-3.1-flash-lite
+      temperature: 0.0
       max-tokens: 1024
-      log-requests: true
-      log-responses: true
+      log-requests: false
+      log-responses: false
     # Embedding model: Dùng all-MiniLM-L6-v2 cục bộ, không tốn token
     embedding-model:
       enabled: false   # Tắt OpenAI embedding, dùng local model thay thế
+
+# ─── Groq API (Fast Model cho Rewriter/Router/Summarizer) ────────
+ai:
+  groq:
+    base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
+    api-key: ${GROQ_API_KEY:}
+    model-name: ${GROQ_MODEL:llama-3.1-8b-instant}
 
 # ─── Eureka ───────────────────────────────────────────────────────────
 eureka:
@@ -65,14 +74,14 @@ jwt:
 
 # ─── Internal Auth ───────────────────────────────────────────────────
 internal:
-  secret: ${INTERNAL_SECRET}
+  secret: ${INTERNAL_SECRET:fnb-internal-secret-2024}
 
 
 # ─── Logging ──────────────────────────────────────────────────────────
 logging:
   level:
     com.fnb.ai: DEBUG
-    dev.langchain4j: DEBUG
+    dev.langchain4j: INFO
 
 # ─── Actuator ─────────────────────────────────────────────────────────
 management:

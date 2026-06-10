@@ -94,4 +94,17 @@ public class PricingEngine {
         public T getPromotion() { return promotion; }
         public BigDecimal getDiscountAmount() { return discountAmount; }
     }
+
+    /**
+     * Calculates tax amount from a gross price (inclusive tax).
+     * Formula: Tax = Gross - (Gross / (1 + Rate/100))
+     */
+    public static BigDecimal calculateTaxFromGross(BigDecimal grossPrice, BigDecimal taxRate) {
+        if (grossPrice == null || taxRate == null || taxRate.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal divisor = BigDecimal.ONE.add(taxRate.divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
+        BigDecimal netPrice = grossPrice.divide(divisor, 2, RoundingMode.HALF_UP);
+        return grossPrice.subtract(netPrice);
+    }
 }

@@ -53,6 +53,12 @@ public class OrderProducerService {
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleOrderCancelledEvent(OrderCancelledEvent event) {
+        log.info("Gửi sự kiện ORDER_CANCELLED cho Order ID: {}", event.getOrderId());
+        kafkaTemplate.send("order.cancelled", event.getOrderId().toString(), event);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleTicketUpdatedEvent(TicketUpdatedEvent event) {
         log.info("Gửi sự kiện TICKET_UPDATED cho Ticket ID: {}", event.getTicketId());
         kafkaTemplate.send("ticket.updated", event.getTicketId().toString(), event);

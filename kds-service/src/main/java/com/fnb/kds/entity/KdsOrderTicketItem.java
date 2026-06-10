@@ -57,6 +57,10 @@ public class KdsOrderTicketItem {
     @Builder.Default
     private List<KdsOrderItemOption> options = new ArrayList<>();
 
+    /** Phase 2 — Fraud Prevention: Ai là người hủy món trên KDS? */
+    @Column(name = "cancelled_by")
+    private UUID cancelledBy;
+
     @Column(name = "kitchen_alert_sent")
     private Boolean kitchenAlertSent;
 }

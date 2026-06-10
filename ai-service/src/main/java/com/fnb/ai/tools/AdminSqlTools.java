@@ -1,5 +1,6 @@
 package com.fnb.ai.tools;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
@@ -9,158 +10,95 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 
-/**
- * [PHASE 4.3 — Level 2] Safe Text-to-SQL Tools.
- *
- * Cung cấp 2 công cụ cho Admin AI:
- *   1. getDatabaseSchema()    — Lấy cấu trúc bảng để AI soạn SQL chính xác.
- *   2. executeReadOnlyQuery() — Thực thi câu SELECT an toàn, tối đa 20 dòng.
- *
- * Quy trình bắt buộc: getDatabaseSchema() → phân tích → executeReadOnlyQuery()
- *
- * BẢO MẬT:
- *   - Chỉ cho phép câu lệnh bắt đầu bằng SELECT.
- *   - Regex word-boundary chặn keyword injection (DROP, DELETE, UPDATE...).
- *   - Backend tự động enforce LIMIT 20 nếu AI quên.
- */
-@Slf4j
 @Component("adminSqlTools")
 @RequiredArgsConstructor
+@Slf4j
 public class AdminSqlTools {
 
-    private final JdbcTemplate jdbc;
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
-    /** Regex chặn DML/DDL keyword dù AI có cố tình nhúng vào string */
-    private static final Pattern DANGEROUS_KEYWORDS = Pattern.compile(
-        "\\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|REPLACE|MERGE|CALL|EXEC|EXECUTE)\\b",
-        Pattern.CASE_INSENSITIVE
-    );
-
-    // ─── Tool 1: Schema Provider ───────────────────────────────────────────────
-
-    @Tool("""
-        Lấy cấu trúc đầy đủ của Database (tên bảng, cột, kiểu dữ liệu, enum, foreign key).
-        BẮT BUỘC phải gọi tool này TRƯỚC KHI gọi executeReadOnlyQuery để viết SQL chính xác.
-        Không cần tham số.
-        """)
+    @Tool("Lấy toàn bộ cấu trúc CSDL (Schema, Table, Column, Data Type) của hệ thống F&B. " +
+          "BẠN BẮT BUỘC PHẢI GỌI TOOL NÀY TRƯỚC KHI VIẾT CÂU LỆNH SQL ĐỂ TRÁNH TRUY VẤN SAI TÊN CỘT HOẶC SAI TÊN BẢNG. " +
+          "LƯU Ý: Khi JOIN giữa cột uuid và varchar, bạn PHẢI thêm ::text để ép kiểu, ví dụ: JOIN auth.users u ON u.id::text = o.cashier_id::text")
     public String getDatabaseSchema() {
-        log.info("[SQL-TOOL] Admin AI yêu cầu Database Schema.");
-        return DatabaseSchema.GET_CORE_SCHEMA;
+        log.info("[ADMIN-TOOL] getDatabaseSchema");
+        try {
+            String sql = """
+                SELECT table_schema, table_name, column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_schema IN ('auth', 'menu', 'orders', 'inventory', 'kds')
+                ORDER BY table_schema, table_name, ordinal_position
+            """;
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+            if (rows.isEmpty()) return "Không thể lấy cấu trúc CSDL.";
+            
+            StringBuilder sb = new StringBuilder("CẤU TRÚC DATABASE CHUẨN (Tên Bảng và Các Cột):\n");
+            sb.append("LƯU Ý QUAN TRỌNG: Khi JOIN cột uuid với cột khác, PHẢI dùng ::text để ép kiểu.\n\n");
+            String currentTable = "";
+            for (Map<String, Object> row : rows) {
+                String table = row.get("table_schema") + "." + row.get("table_name");
+                String col = String.valueOf(row.get("column_name"));
+                String type = String.valueOf(row.get("data_type"));
+                // Chỉ hiển thị type ngắn gọn cho các kiểu quan trọng dễ nhầm
+                String typeHint = switch (type) {
+                    case "uuid" -> ":uuid";
+                    case "character varying" -> ":varchar";
+                    case "bigint" -> ":bigint";
+                    case "numeric" -> ":numeric";
+                    case "timestamp without time zone", "timestamp with time zone" -> ":timestamp";
+                    default -> "";
+                };
+                if (!table.equals(currentTable)) {
+                    if (!currentTable.isEmpty()) sb.append(")\n");
+                    sb.append("- ").append(table).append("(").append(col).append(typeHint);
+                    currentTable = table;
+                } else {
+                    sb.append(", ").append(col).append(typeHint);
+                }
+            }
+            if (!currentTable.isEmpty()) sb.append(")\n");
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[ADMIN-TOOL] getDatabaseSchema Error", e);
+            return "Lỗi khi lấy Schema: " + e.getMessage();
+        }
     }
 
-    // ─── Tool 2: Safe Query Executor ──────────────────────────────────────────
-
-    @Tool("""
-        Chạy câu lệnh SQL SELECT để trả lời câu hỏi ad-hoc không có tool chuyên dụng.
-        Yêu cầu: Phải gọi getDatabaseSchema() trước để đảm bảo SQL đúng cấu trúc.
-        Tự động giới hạn 20 dòng kết quả. Chỉ chấp nhận SELECT.
-        """)
-    public String executeReadOnlyQuery(
-            @P("Câu lệnh SQL hợp lệ, bắt đầu bằng SELECT, dùng đúng schema prefix (orders., menu., auth.). Không chứa INSERT/UPDATE/DELETE/DROP.")
-            String sql) {
-
-        log.info("[SQL-TOOL] Thực thi truy vấn: {}", sql);
-
-        String cleanSql = sql.strip();
-
-        // Guard 1: phải bắt đầu bằng SELECT
-        if (!cleanSql.toUpperCase().startsWith("SELECT")) {
-            log.warn("[SQL-TOOL] Từ chối: câu lệnh không phải SELECT.");
-            return "LỖI BẢO MẬT: Chỉ được phép chạy câu lệnh SELECT.";
+    @Tool("Vũ khí tối thượng: Truy vấn trực tiếp vào Cơ sở dữ liệu (PostgreSQL) bằng lệnh SQL. " +
+          "CHỈ SỬ DỤNG khi các tool khác (Report, Order, Inventory) KHÔNG THỂ trả lời được câu hỏi. " +
+          "Yêu cầu SQL phải là lệnh SELECT hợp lệ. LƯU Ý TỐI QUAN TRỌNG: BẠN PHẢI GỌI TOOL 'getDatabaseSchema' TRƯỚC ĐỂ LẤY TÊN CỘT VÀ TÊN BẢNG CHUẨN XÁC, SAU ĐÓ MỚI ĐƯỢC PHÉP DÙNG TOOL NÀY. TUYỆT ĐỐI KHÔNG TỰ BỊA TÊN CỘT. " +
+          "CẢNH BÁO TYPE CAST: Khi JOIN cột uuid với cột khác, PHẢI dùng ::text ép kiểu (VD: u.id::text = o.cashier_id::text). Không cast sẽ bị lỗi 'operator does not exist: character varying = uuid'. " +
+          "CẢNH BÁO ENCODING: TUYỆT ĐỐI KHÔNG dùng tiếng Việt có dấu trong câu SQL (LIKE '%hủy%' sẽ BỊ LỖI ENCODING). " +
+          "Thay vào đó hãy: (1) Lọc theo cột enum/status (transaction_type, status), (2) Nếu bắt buộc dùng LIKE thì chỉ dùng ký tự ASCII không dấu, (3) Hoặc bỏ qua điều kiện LIKE và lọc kết quả sau. " +
+          "Dùng khi admin hỏi những câu hỏi phức tạp. Vd: 'Lấy top 5 khách hàng VIP', 'Bảng user có bao nhiêu người'.")
+    public String executeReadOnlyQuery(@P("Lệnh SQL SELECT hoàn chỉnh") String sqlQuery) {
+        log.warn("[ADMIN-TOOL] executeReadOnlyQuery: {}", sqlQuery);
+        
+        // Anti-CRUD regex to prevent modifications
+        String upperQuery = sqlQuery.toUpperCase().trim();
+        if (upperQuery.contains("INSERT") || upperQuery.contains("UPDATE") || 
+            upperQuery.contains("DELETE") || upperQuery.contains("DROP") || 
+            upperQuery.contains("ALTER") || upperQuery.contains("TRUNCATE") || 
+            upperQuery.contains("EXEC") || upperQuery.contains("GRANT")) {
+            return "Lỗi bảo mật: AI chỉ được phép thực thi lệnh SELECT. Không được phép chỉnh sửa dữ liệu.";
         }
-
-        // Guard 2: regex chặn keyword nguy hiểm (word-boundary)
-        if (DANGEROUS_KEYWORDS.matcher(cleanSql).find()) {
-            log.warn("[SQL-TOOL] Từ chối: phát hiện từ khóa DML/DDL.");
-            return "LỖI BẢO MẬT: Phát hiện từ khóa nguy hiểm. Chỉ được đọc dữ liệu (READ-ONLY).";
-        }
-
-        // Guard 3: Chặn Multi-statement (chỉ cho phép dấu ; ở cuối cùng nếu có)
-        int semiIdx = cleanSql.indexOf(';');
-        if (semiIdx >= 0 && semiIdx < cleanSql.length() - 1) {
-            log.warn("[SQL-TOOL] Từ chối: phát hiện multi-statement (;).");
-            return "LỖI BẢO MẬT: Không được phép thực thi nhiều câu lệnh cùng lúc.";
-        }
-
-        // Guard 4: tự động inject LIMIT nếu AI quên (chỉ xử lý chuỗi)
-        String safeSql = enforceLimitClause(cleanSql);
 
         try {
-            return jdbc.execute((Connection conn) -> {
-                try (Statement stmt = conn.createStatement()) {
-                    stmt.setMaxRows(20);         
-                    stmt.setQueryTimeout(5);     
-                    
-                    try (ResultSet rs = stmt.executeQuery(safeSql)) {
-                        ResultSetMetaData rsmd = rs.getMetaData();
-                        int columnCount = rsmd.getColumnCount();
-                        
-                        List<Map<String, Object>> rows = new ArrayList<>();
-                        while (rs.next()) {
-                            Map<String, Object> row = new LinkedHashMap<>();
-                            for (int i = 1; i <= columnCount; i++) {
-                                row.put(rsmd.getColumnName(i), rs.getObject(i));
-                            }
-                            rows.add(row);
-                        }
-                        
-                        if (rows.isEmpty()) {
-                            return "Truy vấn thành công nhưng không có dữ liệu nào được trả về.";
-                        }
-
-                        StringBuilder sb = new StringBuilder("KẾT QUẢ TRUY VẤN (tối đa 20 dòng):\n");
-                        for (Map<String, Object> row : rows) {
-                            sb.append(row).append("\n");
-                        }
-                        return sb.toString();
-                    }
-                } catch (Exception ex) {
-                    return "LỖI SQL KHI THỰC THI: " + ex.getMessage();
-                }
-            });
-
-        } catch (Exception e) {
-            log.error("[SQL-TOOL] Lỗi thực thi SQL: {}", e.getMessage());
-            return "LỖI HỆ THỐNG CƠ SỞ DỮ LIỆU: " + e.getMessage()
-                    + "\nGợi ý: Kiểm tra lại tên bảng (dùng getDatabaseSchema()) và schema prefix.";
-        }
-    }
-
-    /**
-     * Đảm bảo câu SQL luôn có LIMIT 20.
-     * Nếu AI đã có LIMIT nhưng > 20, thay thành 20.
-     * Nếu chưa có LIMIT, nối thêm vào cuối.
-     */
-    private String enforceLimitClause(String sql) {
-        String upper = sql.toUpperCase();
-        int limitIdx = upper.lastIndexOf("LIMIT");
-        if (limitIdx >= 0) {
-            // Tìm số sau LIMIT và đảm bảo <= 20
-            String after = sql.substring(limitIdx + 5).strip();
-            String[] parts = after.split("\\s+", 2);
-            try {
-                int requested = Integer.parseInt(parts[0]);
-                if (requested > 20) {
-                    return sql.substring(0, limitIdx) + "LIMIT 20";
-                }
-                return sql; // đã hợp lệ
-            } catch (NumberFormatException ignored) {
-                // không parse được, inject an toàn
+            List<Map<String, Object>> result = jdbcTemplate.queryForList(sqlQuery);
+            if (result.isEmpty()) {
+                return "Truy vấn thành công nhưng không có dữ liệu trả về (Empty ResultSet).";
             }
+            // Giới hạn kết quả để LLM không bị quá tải token
+            if (result.size() > 50) {
+                result = result.subList(0, 50);
+                return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA). Chỉ hiển thị 50 dòng đầu tiên:\n" + objectMapper.writeValueAsString(result);
+            }
+            return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(result);
+        } catch (Exception e) {
+            log.error("[ADMIN-TOOL] SQL Error", e);
+            return "Lỗi khi thực thi SQL: " + e.getMessage();
         }
-        // Chưa có LIMIT — xóa dấu chấm phẩy cuối (nếu có) rồi thêm
-        String trimmed = sql.stripTrailing();
-        if (trimmed.endsWith(";")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1).stripTrailing();
-        }
-        return trimmed + " LIMIT 20";
     }
 }

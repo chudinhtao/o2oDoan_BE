@@ -8,7 +8,10 @@ import dev.langchain4j.service.spring.AiService;
 /**
  * Trợ lý hỗ trợ chung cho Admin, xử lý các trường hợp chào hỏi, ngoài lề (OTHER).
  */
-@AiService(tools = {}) // Nhánh OTHER không cần gọi tools DB để đảm bảo an toàn
+@AiService(wiringMode = dev.langchain4j.service.spring.AiServiceWiringMode.EXPLICIT,
+           chatModel = "smartChatModel",
+           chatMemoryProvider = "chatMemoryProvider",
+           tools = {})
 public interface AdminGeneralAgent {
 
     @SystemMessage("""

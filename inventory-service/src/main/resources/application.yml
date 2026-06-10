@@ -1,0 +1,57 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: inventory-service
+
+  datasource:
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?currentSchema=inventory&TimeZone=Asia/Ho_Chi_Minh"
+    username: ${DB_USER:fnb_user}
+    password: ${DB_PASS:fnb_pass}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: inventory
+
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:9092}
+    consumer:
+      group-id: inventory-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
+  instance:
+    prefer-ip-address: true
+
+jwt:
+  secret: ${JWT_SECRET}
+
+internal:
+  secret: ${INTERNAL_SECRET:fnb-internal-secret-2024}
+
+logging:
+  level:
+    com.fnb.inventory: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

@@ -33,6 +33,7 @@ public interface MenuServiceClient {
             UUID categoryId,
             String name,
             BigDecimal basePrice,
+            BigDecimal taxRate,
             String station,
             String imageUrl,
             Boolean isAvailable,

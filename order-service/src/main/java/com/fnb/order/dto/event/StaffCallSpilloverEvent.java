@@ -24,5 +24,6 @@ public class StaffCallSpilloverEvent {
     private String zone;
     private String callType;
     private Long pendingSeconds; // Đã chờ bao nhiêu giây
+    private String message;
     private LocalDateTime alertAt;
 }

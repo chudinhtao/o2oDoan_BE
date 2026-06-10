@@ -23,6 +23,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     List<Order> findByStatus(String status);
     List<Order> findByStatusAndPaymentMethod(String status, String paymentMethod);
     List<Order> findTop50ByStatusAndPaymentMethodAndUpdatedAtGreaterThanEqualOrderByUpdatedAtAsc(String status, String paymentMethod, LocalDateTime time);
+    Optional<Order> findBySession_SessionToken(String sessionToken);
 
     /**
      * Lấy danh sách đơn Takeaway đang OPEN/PAYMENT_REQUESTED
@@ -38,7 +39,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             s.id, s.sessionToken,
             COALESCE(o.total, 0.0),
             s.openedAt,
-            null, null
+            null, null, null
         )
         FROM Order o
         JOIN o.session s
@@ -49,7 +50,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     List<PosTableResponse> findActiveTakeawayOrders();
 
     @Modifying
-    @Query("DELETE FROM Order o WHERE o.tickets IS EMPTY AND o.createdAt < :limit")
+    @Query("DELETE FROM Order o WHERE o.tickets IS EMPTY AND o.createdAt < :limit AND o.discount = 0")
     int deleteEmptyOrders(@Param("limit") LocalDateTime limit);
 
     @Query("SELECT o FROM Order o WHERE o.orderType = 'TAKEAWAY' AND o.status = 'PAYMENT_REQUESTED' AND o.updatedAt < :limit")

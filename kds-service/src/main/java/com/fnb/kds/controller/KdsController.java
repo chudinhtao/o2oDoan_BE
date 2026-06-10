@@ -30,10 +30,11 @@ public class KdsController {
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @GetMapping("/tickets/active")
-    public ResponseEntity<List<Map<String, Object>>> getActiveTickets() {
+    public ResponseEntity<List<Map<String, Object>>> getActiveTickets(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) LocalDateTime startFrom) {
         List<KdsOrderTicket> tickets = kdsTicketRepository.findByStatusInOrderByCreatedAtAsc(Arrays.asList("PENDING", "PREPARING", "DONE", "SERVED", "CANCELLED", "RETURNED"));
         
-        LocalDateTime cutoff = LocalDateTime.now().minusHours(12);
+        LocalDateTime cutoff = startFrom != null ? startFrom : LocalDateTime.now().minusHours(12);
 
         List<Map<String, Object>> responses = tickets.stream()
             .filter(t -> {
@@ -113,6 +114,13 @@ public class KdsController {
                     return ResponseEntity.badRequest().body(Map.of("message", "Không thể hủy món đã hoàn thành hoặc đã phục vụ"));
                 }
                 
+                // Phase 2: Ghi nhận ai đã hủy món trên KDS
+                if (userId != null) {
+                    try {
+                        item.setCancelledBy(UUID.fromString(userId));
+                    } catch (Exception e) { /* ignore invalid uuid */ }
+                }
+                
                 // Subtract money from order
                 KdsOrderTicket ticket = item.getTicket();
                 if (ticket != null && ticket.getOrder() != null) {
@@ -128,11 +136,15 @@ public class KdsController {
                     if (order.getTotal() != null) order.setTotal(order.getTotal().subtract(itemValue));
                     kdsOrderRepository.save(order);
                 }
-            } else {
                 int currentLevel = getStatusLevel(currentStatus);
                 int newLevel = getStatusLevel(upperNew);
                 if (newLevel > 0 && currentLevel > newLevel) {
-                    return ResponseEntity.badRequest().body(Map.of("message", "Cấm quay ngược trạng thái (không thể chuyển từ " + currentStatus + " về " + upperNew + ")"));
+                    // Cho phép quay ngược từ DONE/READY về PREPARING/PENDING đề phòng bếp ấn nhầm
+                    boolean isUndoFromDone = ("DONE".equalsIgnoreCase(currentStatus) || "READY".equalsIgnoreCase(currentStatus)) 
+                            && ("PREPARING".equalsIgnoreCase(upperNew) || "PENDING".equalsIgnoreCase(upperNew));
+                    if (!isUndoFromDone) {
+                        return ResponseEntity.badRequest().body(Map.of("message", "Cấm quay ngược trạng thái (không thể chuyển từ " + currentStatus + " về " + upperNew + ")"));
+                    }
                 }
             }
 
@@ -175,6 +187,10 @@ public class KdsController {
             } else if (allDone && !"DONE".equalsIgnoreCase(oldTicketStatus)) {
                 ticket.setStatus("DONE");
                 ticketChanged = true;
+            } else if (!allDone && "DONE".equalsIgnoreCase(oldTicketStatus)) {
+                // Nếu vé đang ở DONE nhưng giờ có món chưa xong (do Undo món), kéo vé lại về PREPARING
+                ticket.setStatus("PREPARING");
+                ticketChanged = true;
             } else if (hasAnyProgress && "PENDING".equalsIgnoreCase(oldTicketStatus)) {
                 ticket.setStatus("PREPARING");
                 ticketChanged = true;
@@ -196,7 +212,10 @@ public class KdsController {
     }
 
     @PutMapping("/tickets/{id}/status")
-    public ResponseEntity<?> updateTicketStatus(@PathVariable UUID id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> updateTicketStatus(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @PathVariable UUID id, 
+            @RequestBody Map<String, String> body) {
         String newStatus = body.get("status");
         if (newStatus == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "Status is required"));
@@ -236,8 +255,20 @@ public class KdsController {
                         }
                         
                         i.setStatus(upperNew);
+                        if ("CANCELLED".equals(upperNew)) {
+                            if (userId != null) {
+                                try {
+                                    i.setCancelledBy(UUID.fromString(userId));
+                                } catch (Exception e) { /* ignore */ }
+                            }
+                        }
                         if ("DONE".equals(upperNew) || "COMPLETED".equals(upperNew)) {
                             i.setCompletedAt(LocalDateTime.now());
+                            if (userId != null) {
+                                try {
+                                    i.setPreparedBy(UUID.fromString(userId));
+                                } catch (Exception e) { /* ignore */ }
+                            }
                         }
                     }
                 }

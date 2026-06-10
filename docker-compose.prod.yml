@@ -14,10 +14,14 @@ services:
       POSTGRES_PASSWORD: ${DB_PASS:-fnb_pass}
       PGTZ: Asia/Ho_Chi_Minh
     ports:
-      - "5432:5432" # Đã sửa thành port chuẩn cho Production
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fnb_user} -d ${DB_NAME:-fnb_db}"]
       interval: 10s
@@ -30,6 +34,10 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -37,6 +45,10 @@ services:
     restart: always
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -51,6 +63,11 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 15s
@@ -68,6 +85,12 @@ services:
       - "8761:8761"
     env_file:
       - .env
+    environment:
+      - JAVA_TOOL_OPTIONS=-Xms128m -Xmx256m
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   api-gateway:
     image: ${DOCKERHUB_USERNAME}/fnb-api-gateway:latest
@@ -80,8 +103,13 @@ services:
     environment:
       - EUREKA_HOST=eureka-server
       - REDIS_HOST=redis
+      - JAVA_TOOL_OPTIONS=-Xms128m -Xmx256m
     depends_on:
       - eureka-server
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   auth-service:
     image: ${DOCKERHUB_USERNAME}/fnb-auth-service:latest
@@ -93,9 +121,14 @@ services:
       - EUREKA_HOST=eureka-server
       - DB_HOST=postgres
       - DB_PORT=5432
+      - JAVA_TOOL_OPTIONS=-Xms128m -Xmx256m
     depends_on:
       postgres:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   order-service:
     image: ${DOCKERHUB_USERNAME}/fnb-order-service:latest
@@ -109,11 +142,16 @@ services:
       - DB_PORT=5432
       - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - JAVA_TOOL_OPTIONS=-Xms256m -Xmx512m
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
   menu-service:
     image: ${DOCKERHUB_USERNAME}/fnb-menu-service:latest
@@ -127,9 +165,14 @@ services:
       - DB_PORT=5432
       - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - JAVA_TOOL_OPTIONS=-Xms256m -Xmx512m
     depends_on:
       postgres:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
   kds-service:
     image: ${DOCKERHUB_USERNAME}/fnb-kds-service:latest
@@ -142,9 +185,14 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - JAVA_TOOL_OPTIONS=-Xms128m -Xmx256m
     depends_on:
       postgres:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   report-service:
     image: ${DOCKERHUB_USERNAME}/fnb-report-service:latest
@@ -156,9 +204,14 @@ services:
       - EUREKA_HOST=eureka-server
       - DB_HOST=postgres
       - DB_PORT=5432
+      - JAVA_TOOL_OPTIONS=-Xms256m -Xmx512m
     depends_on:
       postgres:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
   notification-service:
     image: ${DOCKERHUB_USERNAME}/fnb-notification-service:latest
@@ -169,6 +222,11 @@ services:
     environment:
       - EUREKA_HOST=eureka-server
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - JAVA_TOOL_OPTIONS=-Xms128m -Xmx256m
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   ai-service:
     image: ${DOCKERHUB_USERNAME}/fnb-ai-service:latest
@@ -181,9 +239,14 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - REDIS_HOST=redis
+      - JAVA_TOOL_OPTIONS=-Xms256m -Xmx512m
     depends_on:
       postgres:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
 volumes:
   postgres_data:

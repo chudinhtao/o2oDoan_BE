@@ -7,4 +7,6 @@ import lombok.Data;
 public class StaffCallRequest {
     @NotBlank(message = "Loại yêu cầu không được để trống")
     private String callType; // WATER, BILL, CLEAN, SUPPORT
+    
+    private String message; // Optional reason/message
 }

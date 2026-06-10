@@ -6,5 +6,8 @@ public record ProfileRequest(
         String logoUrl,
         String bannerUrl,
         String address,
-        String phone
+        String phone,
+        String openTime,
+        String closeTime,
+        String localCultureNotes
 ) {}

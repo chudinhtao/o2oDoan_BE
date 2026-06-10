@@ -19,12 +19,30 @@ public class OrderResponse {
     private String status; // OPEN, PAID, CANCELLED
     private String source; // QR, MANUAL
     private String orderType; // DINE_IN, TAKEAWAY, DELIVERY
+    private String customerName;
+    private String customerPhone;
     private BigDecimal subtotal;
+    private BigDecimal depositAmount;
     private BigDecimal discount;
     private BigDecimal total;
     private UUID promotionId;
     private String promotionCode;
+    private String discountType;
+    private BigDecimal discountRate;
+    private BigDecimal tax;
+    private BigDecimal serviceFee;
+    private String paymentMethod;
+    private String paymentDetail; // JSON string for MIXED payment or extra payment data
+    private Long payosOrderCode;
+    private LocalDateTime paidAt;
+    private UUID cashierId;
+    private UUID cancelledBy;
+    private String cancelReason;
+    private BigDecimal minOrderAmount;
+    private BigDecimal maxDiscountValue;
+    private Boolean isStackable;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
     private List<OrderTicketResponse> tickets;
     private List<OrderSummaryItemResponse> summaryItems;
 }

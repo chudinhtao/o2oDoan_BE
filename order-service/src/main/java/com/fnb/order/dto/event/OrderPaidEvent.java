@@ -22,4 +22,27 @@ public class OrderPaidEvent {
     private String orderType;
     /** VD: "Bàn 12" hoặc "Mang Đi #001a" */
     private String orderIdentifier;
+    
+    private java.util.List<LineItem> lineItems;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class LineItem {
+        private UUID orderLineItemId;
+        private UUID menuItemId; // This is the saleItemId for Recipe lookup
+        private Integer quantity;
+        private String kitchenStatus;
+        private java.util.List<Modifier> modifiers;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Modifier {
+        private UUID menuItemId;
+        private String optionName;
+    }
 }

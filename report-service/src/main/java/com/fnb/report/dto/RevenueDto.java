@@ -14,7 +14,9 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class RevenueDto {
     private LocalDate day;
-    private BigDecimal revenue;
+    private BigDecimal revenue; // Gross
+    private BigDecimal taxAmount;
+    private BigDecimal netRevenue;
     private long totalOrders;
     private BigDecimal avgOrderValue;
 }

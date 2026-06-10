@@ -25,6 +25,9 @@ public class OrderItemOption {
     @Column(name = "option_name", nullable = false, length = 100)
     private String optionName;
 
+    @Column(name = "menu_item_id")
+    private UUID menuItemId;
+
     @Column(name = "extra_price")
     @Builder.Default
     private BigDecimal extraPrice = BigDecimal.ZERO;

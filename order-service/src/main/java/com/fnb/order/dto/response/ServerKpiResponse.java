@@ -15,4 +15,6 @@ public class ServerKpiResponse {
     private long totalResolved;
     /** Thời gian xử lý trung bình một yêu cầu (giây) */
     private long avgResponseSeconds;
+    /** Thời gian bưng món trung bình (giây) */
+    private long avgDeliverySeconds;
 }

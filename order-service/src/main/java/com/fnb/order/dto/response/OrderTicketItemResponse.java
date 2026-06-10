@@ -19,7 +19,9 @@ public class OrderTicketItemResponse {
     private String note;
     private String status;
     private String station;
+    private String imageUrl;
     private LocalDateTime createdAt;
+    private LocalDateTime servedAt;
     private List<OrderItemOptionResponse> options;
     private Boolean isAlertSent;
     private Boolean kitchenAlertSent;

@@ -101,4 +101,19 @@ public interface MenuFeignClient {
             String station,
             BigDecimal basePrice
     ) {}
+
+    // Deep Menu APIs (Phase 7)
+    @GetMapping("/api/admin/promotions")
+    ApiResponse<Object> getAllPromotions(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "0", value = "page") int page,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "50", value = "size") int size
+    );
+
+    @GetMapping("/api/admin/profile")
+    ApiResponse<Object> getRestaurantProfile();
+
+    @GetMapping("/api/menu/items/{id}")
+    ApiResponse<Object> getItemDetails(
+            @org.springframework.web.bind.annotation.PathVariable("id") UUID id
+    );
 }

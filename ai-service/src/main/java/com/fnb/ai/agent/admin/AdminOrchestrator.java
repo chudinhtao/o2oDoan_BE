@@ -72,7 +72,8 @@ public class AdminOrchestrator {
         }
 
         // 3. [Phase 4.1] Dung LLM Router de phan loai (Cache MISS)
-        String domain = routerAgent.routeIntent(UUID.randomUUID().toString(), userMessage).trim().toUpperCase();
+        String routerMemoryId = "stateless-router-" + UUID.randomUUID().toString();
+        String domain = routerAgent.routeIntent(routerMemoryId, userMessage).trim().toUpperCase();
         log.info("[ADMIN-ORCHESTRATOR] adminId={} | domain={} | msg={}", adminId, domain, userMessage);
 
         TimeContext tc = buildTimeContext();
@@ -122,16 +123,16 @@ public class AdminOrchestrator {
      */
     private String checkCrudIntents(String m) {
         if (m.matches(".*(them nhan vien|tao tai khoan|khoa acc|mo khoa|doi mat khau|quan ly nhan vien).*"))
-            return "Viec quan ly nhan vien (Them, xoa, sua) vui long thuc hien tren giao dien Quan ly Nhan vien. Toi chi ho tro xem trang thai dang truc hoac khao sat hieu suat.";
+            return "Việc quản lý nhân viên (Thêm, xóa, sửa) vui lòng thực hiện trên giao diện Quản lý Nhân viên. Tôi chỉ hỗ trợ xem trạng thái đang trực hoặc khảo sát hiệu suất.";
 
         if (m.matches(".*(so do ban|tao ban|them ban|qr code|reset qr|ban so).*") && !m.matches(".*(doanh thu ban|ban nao hieu qua|ban dung lau).*"))
-            return "Viec quan ly so do ban va in QR code, vui long thao tac tai man hinh Quan ly Ban.";
+            return "Việc quản lý sơ đồ bàn và in QR code, vui lòng thao tác tại màn hình Quản lý Bàn.";
 
         if (m.matches(".*(an mon|hien mon|sua mon|them mon moi|tao mon|xoa mon|gia ban|cap nhat gia).*") && !m.matches(".*(het hang|mon nao ban chay|trang thai menu|mon nao dang sale).*"))
-            return "De thay doi Menu (them mon, sua gia, an/hien), vui long thao tac o man hinh Quan ly Menu. Toi co the giup ban kiem tra tinh trang cac mon dang het hang hoac phan tich menu (BCG Matrix).";
+            return "Để thay đổi Menu (thêm món, sửa giá, ẩn/hiển), vui lòng thao tác ở màn hình Quản lý Menu. Tôi có thể giúp bạn kiểm tra tình trạng các món đang hết hàng hoặc phân tích menu (BCG Matrix).";
 
         if (m.matches(".*(tao ma km|tao khuyen mai|xoa km|cap nhat km|bat km|tat km).*"))
-            return "De tao hoac huy chuong trinh Khuyen mai, vui long truy cap module Quan ly Khuyen Mai. Toi chi co the ho tro phan tich do hieu qua (ROI) cua cac khuyen mai hien tai.";
+            return "Để tạo hoặc hủy chương trình Khuyến mãi, vui lòng truy cập module Quản lý Khuyến Mãi. Tôi chỉ có thể hỗ trợ phân tích độ hiệu quả (ROI) của các khuyến mãi hiện tại.";
 
         return null;
     }
@@ -146,8 +147,10 @@ public class AdminOrchestrator {
                 .replaceAll("").replace("đ", "d").replace("Đ", "D");
     }
 
+    private static final java.time.ZoneId VN_ZONE = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+
     private TimeContext buildTimeContext() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(VN_ZONE);
         LocalDate yesterday = today.minusDays(1);
         LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         LocalDate lastWeekStart = weekStart.minusWeeks(1);

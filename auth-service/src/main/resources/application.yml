@@ -12,7 +12,7 @@ spring:
       port: ${REDIS_PORT:6379}
 
   datasource:
-    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?currentSchema=auth&TimeZone=UTC"
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:fnb_db}?currentSchema=auth&TimeZone=Asia/Ho_Chi_Minh"
     username: ${DB_USER:fnb_user}
     password: ${DB_PASS:fnb_pass}
     driver-class-name: org.postgresql.Driver
@@ -28,7 +28,7 @@ spring:
         default_schema: auth    # Mọi entity mặc định tìm trong schema auth
 
 internal:
-  secret: ${INTERNAL_SECRET}
+  secret: ${INTERNAL_SECRET:fnb-internal-secret-2024}
 
 # ─── JWT — dùng cùng secret với api-gateway ──────────────────────────
 jwt:

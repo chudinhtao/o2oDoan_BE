@@ -20,7 +20,7 @@ import java.io.IOException;
 @Slf4j
 public class InternalSecretFilter extends OncePerRequestFilter {
 
-    @Value("${internal.secret}")
+    @Value("${internal.secret:fnb-internal-secret-2024}")
     private String internalSecret;
 
     @Override

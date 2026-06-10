@@ -1,6 +1,8 @@
 package com.fnb.ai.exception;
 
+import com.fnb.ai.controller.AdminAiController;
 import com.fnb.common.dto.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,9 +24,18 @@ public class AiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.OK)
-    public ApiResponse<String> handleAllAiExceptions(Exception ex) {
-        log.error("[AI-SERVICE] Unhandled exception: {}", ex.getMessage(), ex);
-        // data = lời xin lỗi → FE đọc response.data.data (nhất quán với toàn hệ thống)
-        return ApiResponse.ok(APOLOGY_MESSAGE);
+    public ApiResponse<?> handleAllAiExceptions(Exception ex, HttpServletRequest request) {
+        log.warn("[AI-SERVICE] Đã xử lý lỗi ngầm tại {}: {} - Trả về tin nhắn thân thiện cho FE", request.getRequestURI(), ex.getMessage());
+        
+        String path = request.getRequestURI();
+        
+        // Nếu là Admin AI đang gọi, trả về object ChatResponse để FE không bị crash khi đọc data.reply
+        if (path != null && path.startsWith("/api/admin/ai")) {
+            return ApiResponse.ok("Thành công", new AdminAiController.ChatResponse(APOLOGY_MESSAGE, null));
+        }
+
+        // Mặc định (Customer AI) thì trả về String (nhất quán với CustomerAiController)
+        // Để chắc chắn FE lấy được chuỗi, dùng data = APOLOGY_MESSAGE
+        return ApiResponse.ok("Thành công", APOLOGY_MESSAGE);
     }
 }

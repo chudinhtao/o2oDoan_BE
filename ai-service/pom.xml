@@ -20,7 +20,7 @@
     <properties>
         <java.version>21</java.version>
         <spring-cloud.version>2023.0.3</spring-cloud.version>
-        <langchain4j.version>0.32.0</langchain4j.version>
+        <langchain4j.version>0.36.2</langchain4j.version>
     </properties>
 
     <dependencyManagement>
@@ -85,10 +85,16 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
         </dependency>
-        <!-- OpenAI-compatible adapter: dùng để kết nối Grok (xAI) -->
+
+        <!-- Native Gemini API Client -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+            <artifactId>langchain4j-google-ai-gemini</artifactId>
+        </dependency>
+        <!-- OpenAI-compatible Client (dùng cho Groq API) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
         </dependency>
         <!-- Embedding model cục bộ (all-MiniLM-L6-v2) cho Vector Sync -->
         <dependency>

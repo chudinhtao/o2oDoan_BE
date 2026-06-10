@@ -34,6 +34,10 @@ public class Category {
     @Builder.Default
     private boolean isActive = true;
 
+    @Column(name = "tax_rate", precision = 5, scale = 2)
+    @Builder.Default
+    private java.math.BigDecimal taxRate = new java.math.BigDecimal("0.00");
+
     @OneToMany(mappedBy = "category", fetch = FetchType.LAZY)
     @Builder.Default
     private List<MenuItem> items = new ArrayList<>();

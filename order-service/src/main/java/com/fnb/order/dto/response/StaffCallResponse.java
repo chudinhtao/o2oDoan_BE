@@ -13,6 +13,7 @@ public class StaffCallResponse {
     private UUID tableId;
     private Integer tableNumber;
     private String callType;
+    private String message;
     private String status;
     private LocalDateTime createdAt;
     private LocalDateTime resolvedAt;

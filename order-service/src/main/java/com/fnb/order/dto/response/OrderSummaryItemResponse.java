@@ -11,6 +11,7 @@ import java.util.UUID;
 public class OrderSummaryItemResponse {
     private UUID menuItemId;
     private String itemName;
+    private String imageUrl;
     private int quantity;
     private BigDecimal unitPrice;
     private BigDecimal priceTotal;

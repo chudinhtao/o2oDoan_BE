@@ -14,5 +14,6 @@ public class StaffCallCreatedEvent {
     private UUID tableId;
     private Integer tableNumber;
     private String callType;
+    private String message;
     private LocalDateTime calledAt;
 }

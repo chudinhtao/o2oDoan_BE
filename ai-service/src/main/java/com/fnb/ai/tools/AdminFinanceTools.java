@@ -27,30 +27,30 @@ public class AdminFinanceTools {
 
     private final ReportFeignClient reportFeignClient;
 
-    @Tool("Phan tich ROI (Hieu qua dau tu) cua tung chuong trinh khuyen mai. " +
-          "Tinh toan: so tien giam gia bo ra (Chi phi), doanh thu tao ra (Loi ich), ty le ROI. " +
-          "Dung khi admin hoi: 'KM nao hieu qua nhat', 'khuyen mai co loi khong', 'nen giu KM nao'. " +
-          "Tham so from/to dinh dang yyyy-MM-dd.")
-    public String getPromotionROIAnalysis(@P("Ngay bat dau (yyyy-MM-dd)") String from,
-                                          @P("Ngay ket thuc (yyyy-MM-dd)") String to) {
+    @Tool("Phân tích ROI (Hiệu quả đầu tư) của từng chương trình khuyến mãi. " +
+          "Tính toán: số tiền giảm giá bỏ ra (Chi phí), doanh thu tạo ra (Lợi ích), tỷ lệ ROI. " +
+          "Dùng khi admin hỏi: 'KM nào hiệu quả nhất', 'khuyến mãi có lời không', 'nên giữ KM nào'. " +
+          "Tham số from/to định dạng yyyy-MM-dd.")
+    public String getPromotionROIAnalysis(@P("Ngày bắt đầu (yyyy-MM-dd)") String from,
+                                          @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[FINANCE-TOOL] getPromotionROIAnalysis from={} to={}", from, to);
         try {
             LocalDate fromDate = LocalDate.parse(from);
             LocalDate toDate   = LocalDate.parse(to);
-            var res = reportFeignClient.getPromotionEffectiveness(fromDate, toDate);
-            if (res == null || res.getData() == null || res.getData().isEmpty()) {
-                return "Khong co du lieu khuyen mai trong khoang " + from + " den " + to + ".";
+            var res = reportFeignClient.getPromotionEffectiveness(fromDate, toDate, 100);
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
+                return "Không có dữ liệu khuyến mãi trong khoảng " + from + " đến " + to + ".";
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("💹 PHAN TICH ROI KHUYEN MAI tu ").append(from).append(" den ").append(to).append(":\n\n");
+            sb.append("💹 PHÂN TÍCH ROI KHUYẾN MÃI từ ").append(from).append(" đến ").append(to).append(":\n\n");
 
             // Tinh tong
             BigDecimal totalRevenue  = BigDecimal.ZERO;
             BigDecimal totalDiscount = BigDecimal.ZERO;
             long totalOrders = 0;
 
-            for (var promo : res.getData()) {
+            for (var promo : res.getData().getContent()) {
                 totalRevenue  = totalRevenue.add(promo.grossRevenue()  != null ? promo.grossRevenue()  : BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(promo.totalDiscountGiven() != null ? promo.totalDiscountGiven() : BigDecimal.ZERO);
                 totalOrders  += promo.orderCount();
@@ -65,47 +65,47 @@ public class AdminFinanceTools {
                                                .setScale(1, RoundingMode.HALF_UP);
                     roiStr = (roi.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "") + roi + "%";
                 } else {
-                    roiStr = "N/A (khong giam gia)";
+                    roiStr = "N/A (không giảm giá)";
                 }
 
                 sb.append("• [").append(promo.promotionCode()).append("]\n")
                   .append("  Doanh thu: ").append(formatVnd(promo.grossRevenue()))
-                  .append(" | Chi giam: ").append(formatVnd(discount))
-                  .append(" | So don: ").append(promo.orderCount())
+                  .append(" | Chi giảm: ").append(formatVnd(discount))
+                  .append(" | Số đơn: ").append(promo.orderCount())
                   .append(" | AOV: ").append(formatVnd(promo.avgOrderValue()))
                   .append(" | ROI: ").append(roiStr).append("\n");
             }
 
-            sb.append("\n📊 TONG KET:\n");
-            sb.append("  Tong doanh thu tu KM: ").append(formatVnd(totalRevenue)).append("\n");
-            sb.append("  Tong tien giam: ").append(formatVnd(totalDiscount)).append("\n");
-            sb.append("  Tong don co KM: ").append(totalOrders).append("\n");
+            sb.append("\n📊 TỔNG KẾT:\n");
+            sb.append("  Tổng doanh thu từ KM: ").append(formatVnd(totalRevenue)).append("\n");
+            sb.append("  Tổng tiền giảm: ").append(formatVnd(totalDiscount)).append("\n");
+            sb.append("  Tổng đơn có KM: ").append(totalOrders).append("\n");
 
             // Khuyen nghi
             if (totalDiscount.compareTo(totalRevenue.multiply(BigDecimal.valueOf(0.3))) > 0) {
-                sb.append("\n⚠️ CANH BAO: Chi phi giam gia vuot 30% doanh thu KM. ")
-                  .append("Nen xem xet lai dieu kien ap dung hoac gia tri giam.");
+                sb.append("\n⚠️ CẢNH BÁO: Chi phí giảm giá vượt 30% doanh thu KM. ")
+                  .append("Nên xem xét lại điều kiện áp dụng hoặc giá trị giảm.");
             }
             return sb.toString();
         } catch (Exception e) {
             log.error("[FINANCE-TOOL] getPromotionROIAnalysis error: {}", e.getMessage());
-            return "Loi khi phan tich ROI khuyen mai. Vui long thu lai sau.";
+            return "Lỗi khi phân tích ROI khuyến mãi. Vui lòng thử lại sau.";
         }
     }
 
-    @Tool("Phan tich xu huong AOV (Gia tri don hang trung binh) theo thoi gian. " +
-          "Tinh toan: AOV theo ngay, xu huong tang/giam, ngay co AOV cao nhat/thap nhat. " +
-          "Dung khi admin hoi: 'AOV dang the nao', 'khach chi tieu bao nhieu', 'gia tri don hang co tang khong'. " +
-          "Tham so from/to dinh dang yyyy-MM-dd.")
-    public String getAovTrendAnalysis(@P("Ngay bat dau (yyyy-MM-dd)") String from,
-                                      @P("Ngay ket thuc (yyyy-MM-dd)") String to) {
+    @Tool("Phân tích xu hướng AOV (Giá trị đơn hàng trung bình) theo thời gian. " +
+          "Tính toán: AOV theo ngày, xu hướng tăng/giảm, ngày có AOV cao nhất/thấp nhất. " +
+          "Dùng khi admin hỏi: 'AOV đang thế nào', 'khách chi tiêu bao nhiêu', 'giá trị đơn hàng có tăng không'. " +
+          "Tham số from/to định dạng yyyy-MM-dd.")
+    public String getAovTrendAnalysis(@P("Ngày bắt đầu (yyyy-MM-dd)") String from,
+                                      @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[FINANCE-TOOL] getAovTrendAnalysis from={} to={}", from, to);
         try {
             LocalDate fromDate = LocalDate.parse(from);
             LocalDate toDate   = LocalDate.parse(to);
             var res = reportFeignClient.getRevenueReport(fromDate, toDate);
             if (res == null || res.getData() == null || res.getData().isEmpty()) {
-                return "Khong co du lieu doanh thu trong khoang " + from + " den " + to + ".";
+                return "Không có dữ liệu doanh thu trong khoảng " + from + " đến " + to + ".";
             }
 
             List<ReportFeignClient.RevenueRow> rows = res.getData();
@@ -127,55 +127,55 @@ public class AdminFinanceTools {
                             r.revenue().divide(BigDecimal.valueOf(r.totalOrders()), 0, RoundingMode.HALF_UP)));
 
             StringBuilder sb = new StringBuilder();
-            sb.append("💳 PHAN TICH AOV tu ").append(from).append(" den ").append(to).append(":\n\n");
-            sb.append("AOV tong the: ").append(formatVnd(overallAov)).append("/don\n");
-            sb.append("Tong doanh thu: ").append(formatVnd(totalRevenue))
-              .append(" / ").append(totalOrders).append(" don\n\n");
+            sb.append("💳 PHÂN TÍCH AOV từ ").append(from).append(" đến ").append(to).append(":\n\n");
+            sb.append("AOV tổng thể: ").append(formatVnd(overallAov)).append("/đơn\n");
+            sb.append("Tổng doanh thu: ").append(formatVnd(totalRevenue))
+              .append(" / ").append(totalOrders).append(" đơn\n\n");
 
-            // Xu huong theo ngay (top 7)
-            sb.append("Chi tiet theo ngay:\n");
+            // Chi tiet theo ngay
+            sb.append("Chi tiết theo ngày:\n");
             rows.forEach(r -> {
                 BigDecimal dayAov = r.totalOrders() > 0
                         ? r.revenue().divide(BigDecimal.valueOf(r.totalOrders()), 0, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO;
                 sb.append("• ").append(r.day())
                   .append(": AOV=").append(formatVnd(dayAov))
-                  .append(" (").append(r.totalOrders()).append(" don, ").append(formatVnd(r.revenue())).append(")\n");
+                  .append(" (").append(r.totalOrders()).append(" đơn, ").append(formatVnd(r.revenue())).append(")\n");
             });
 
             maxDay.ifPresent(r -> {
                 BigDecimal aov = r.revenue().divide(BigDecimal.valueOf(r.totalOrders()), 0, RoundingMode.HALF_UP);
-                sb.append("\n🏆 Ngay AOV cao nhat: ").append(r.day()).append(" — ").append(formatVnd(aov));
+                sb.append("\n🏆 Ngày AOV cao nhất: ").append(r.day()).append(" — ").append(formatVnd(aov));
             });
             minDay.ifPresent(r -> {
                 BigDecimal aov = r.revenue().divide(BigDecimal.valueOf(r.totalOrders()), 0, RoundingMode.HALF_UP);
-                sb.append("\n📉 Ngay AOV thap nhat: ").append(r.day()).append(" — ").append(formatVnd(aov));
+                sb.append("\n📉 Ngày AOV thấp nhất: ").append(r.day()).append(" — ").append(formatVnd(aov));
             });
 
             return sb.toString();
         } catch (Exception e) {
             log.error("[FINANCE-TOOL] getAovTrendAnalysis error: {}", e.getMessage());
-            return "Loi khi phan tich AOV. Vui long thu lai sau.";
+            return "Lỗi khi phân tích AOV. Vui lòng thử lại sau.";
         }
     }
 
-    @Tool("Phan tich co cau doanh thu theo kenh ban (QR/MANUAL) va xu huong. " +
-          "Xac dinh kenh nao dang tang truong, kenh nao can day manh. " +
-          "Dung khi admin hoi: 'kenh nao hieu qua', 'QR chiem bao nhieu', 'nen dau tu kenh nao'. " +
-          "Tham so from/to dinh dang yyyy-MM-dd.")
-    public String getRevenueChannelAnalysis(@P("Ngay bat dau (yyyy-MM-dd)") String from,
-                                            @P("Ngay ket thuc (yyyy-MM-dd)") String to) {
+    @Tool("Phân tích cơ cấu doanh thu theo kênh bán (QR/MANUAL) và xu hướng. " +
+          "Xác định kênh nào đang tăng trưởng, kênh nào cần đẩy mạnh. " +
+          "Dùng khi admin hỏi: 'kênh nào hiệu quả', 'QR chiếm bao nhiêu', 'nên đầu tư kênh nào'. " +
+          "Tham số from/to định dạng yyyy-MM-dd.")
+    public String getRevenueChannelAnalysis(@P("Ngày bắt đầu (yyyy-MM-dd)") String from,
+                                            @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[FINANCE-TOOL] getRevenueChannelAnalysis from={} to={}", from, to);
         try {
             LocalDate fromDate = LocalDate.parse(from);
             LocalDate toDate   = LocalDate.parse(to);
             var res = reportFeignClient.getRevenueBySource(fromDate, toDate);
             if (res == null || res.getData() == null || res.getData().isEmpty()) {
-                return "Khong co du lieu theo kenh ban trong khoang " + from + " den " + to + ".";
+                return "Không có dữ liệu theo kênh bán trong khoảng " + from + " đến " + to + ".";
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("📡 PHAN TICH KENH BAN tu ").append(from).append(" den ").append(to).append(":\n\n");
+            sb.append("📡 PHÂN TÍCH KÊNH BÁN từ ").append(from).append(" đến ").append(to).append(":\n\n");
 
             res.getData().forEach(row -> {
                 BigDecimal aovChannel = row.totalOrders() > 0
@@ -183,33 +183,33 @@ public class AdminFinanceTools {
                         : BigDecimal.ZERO;
                 sb.append("• ").append(row.source()).append(":\n")
                   .append("  Doanh thu: ").append(formatVnd(row.revenue()))
-                  .append(" (").append(row.percentage()).append("% tong)\n")
-                  .append("  So don: ").append(row.totalOrders())
+                  .append(" (").append(row.percentage()).append("% tổng)\n")
+                  .append("  Số đơn: ").append(row.totalOrders())
                   .append(" | AOV: ").append(formatVnd(aovChannel)).append("\n");
             });
 
             // Khuyen nghi chien luoc kenh
-            sb.append("\n💡 NHAN DINH KENH:\n");
+            sb.append("\n💡 NHẬN ĐỊNH KÊNH:\n");
             var dominantSource = res.getData().stream()
                     .max(Comparator.comparingDouble(ReportFeignClient.SourceRow::percentage));
             dominantSource.ifPresent(src -> {
-                sb.append("• Kenh chu dao: ").append(src.source()).append(" (").append(src.percentage()).append("%)\n");
+                sb.append("• Kênh chủ đạo: ").append(src.source()).append(" (").append(src.percentage()).append("%)\n");
                 if (src.percentage() > 80) {
-                    sb.append("• ⚠️ Qua phu thuoc vao 1 kenh. Can da dang hoa de giam rui ro.\n");
+                    sb.append("• ⚠️ Quá phụ thuộc vào 1 kênh. Cần đa dạng hóa để giảm rủi ro.\n");
                 }
             });
 
             return sb.toString();
         } catch (Exception e) {
             log.error("[FINANCE-TOOL] getRevenueChannelAnalysis error: {}", e.getMessage());
-            return "Loi khi phan tich kenh ban. Vui long thu lai sau.";
+            return "Lỗi khi phân tích kênh bán. Vui lòng thử lại sau.";
         }
     }
 
     // ─── Helper ──────────────────────────────────────────────────────────────
 
     private String formatVnd(BigDecimal amount) {
-        if (amount == null) return "0d";
-        return String.format("%,.0f", amount) + "d";
+        if (amount == null) return "0đ";
+        return String.format("%,.0f", amount) + "đ";
     }
 }

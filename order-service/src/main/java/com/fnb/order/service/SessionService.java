@@ -4,6 +4,7 @@ import com.fnb.common.exception.BusinessException;
 import com.fnb.common.exception.ResourceNotFoundException;
 import com.fnb.order.dto.event.TableStatusUpdatedEvent;
 import com.fnb.order.dto.response.SessionResponse;
+import com.fnb.order.dto.request.TakeawayRequest;
 import com.fnb.order.entity.Order;
 import com.fnb.order.entity.TableInfo;
 import com.fnb.order.entity.TableSession;
@@ -60,6 +61,10 @@ public class SessionService {
             throw new BusinessException("Bàn đang được dọn dẹp, xin vui lòng chờ");
         }
 
+        if ("RESERVED".equals(table.getStatus())) {
+            throw new BusinessException("Bàn đã được đặt trước, vui lòng liên hệ nhân viên");
+        }
+
         // --- MERGED REDIRECTION LOGIC ---
         // Nếu bàn đang được ghép vào bàn khác, tự động trỏ về bàn gốc (Bàn cha)
         if ("MERGED".equals(table.getStatus()) && table.getParentTableId() != null) {
@@ -81,6 +86,12 @@ public class SessionService {
             if ("FREE".equals(table.getStatus())) {
                 table.setStatus("OCCUPIED");
                 tableRepository.save(table);
+                
+                applicationEventPublisher.publishEvent(TableStatusUpdatedEvent.builder()
+                        .tableId(table.getId())
+                        .status("OCCUPIED")
+                        .sessionToken(activeSession.get().getSessionToken())
+                        .build());
             }
 
             return toResponse(activeSession.get());
@@ -123,7 +134,7 @@ public class SessionService {
     }
 
     @Transactional
-    public SessionResponse openTakeawaySession() {
+    public SessionResponse openTakeawaySession(TakeawayRequest request) {
         String sessionToken = UUID.randomUUID().toString().replace("-", "") + System.currentTimeMillis();
 
         TableSession session = TableSession.builder()
@@ -143,6 +154,8 @@ public class SessionService {
                 .status("OPEN")
                 .subtotal(BigDecimal.ZERO)
                 .total(BigDecimal.ZERO)
+                .customerName(request != null ? request.getCustomerName() : null)
+                .customerPhone(request != null ? request.getCustomerPhone() : null)
                 .build();
         orderRepository.save(order);
 

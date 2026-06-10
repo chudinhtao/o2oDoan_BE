@@ -24,5 +24,6 @@ public class DeliveryReadyAlertEvent {
     private String zone;
     private List<UUID> urgentItemIds;
     private String urgencyLevel; // "WARNING" (>30s), "CRITICAL" (>60s)
+    private String message;
     private LocalDateTime alertAt;
 }

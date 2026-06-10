@@ -24,8 +24,12 @@ public class StaffController {
 
     // GET /api/admin/staff
     @GetMapping
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAll() {
-        return ResponseEntity.ok(ApiResponse.ok(staffService.getAllStaff()));
+    public ResponseEntity<ApiResponse<com.fnb.common.dto.PageResponse<UserResponse>>> getAll(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(staffService.getAllStaff(keyword, page, size)));
     }
 
     // POST /api/admin/staff
@@ -50,5 +54,12 @@ public class StaffController {
     public ResponseEntity<ApiResponse<UserResponse>> toggle(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Cập nhật trạng thái thành công", staffService.toggleActive(id)));
+    }
+
+    // DELETE /api/admin/staff/{id}
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<?>> delete(@PathVariable UUID id) {
+        staffService.deleteStaff(id);
+        return ResponseEntity.ok(ApiResponse.ok("Xóa nhân viên thành công"));
     }
 }

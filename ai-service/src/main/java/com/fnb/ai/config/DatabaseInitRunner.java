@@ -31,6 +31,13 @@ public class DatabaseInitRunner {
     @EventListener(ApplicationReadyEvent.class)
     public void initDatabase() {
         try {
+            log.info("[DB-INIT] Kiem tra va cap nhat bang ai_semantic_cache (Them session_token)...");
+            jdbcTemplate.execute("ALTER TABLE menu.ai_semantic_cache ADD COLUMN IF NOT EXISTS session_token VARCHAR(255);");
+        } catch (Exception e) {
+            log.warn("[DB-INIT] Bang ai_semantic_cache chua ton tai hoac khong the alter: {}", e.getMessage());
+        }
+
+        try {
             log.info("[DB-INIT] Kiem tra va khoi tao Knowledge Base...");
             ClassPathResource resource = new ClassPathResource("db/init_knowledge_base.sql");
             if (resource.exists()) {

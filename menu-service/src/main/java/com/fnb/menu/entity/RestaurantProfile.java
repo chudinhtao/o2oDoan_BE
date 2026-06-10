@@ -31,6 +31,15 @@ public class RestaurantProfile {
 
     private String phone;
 
+    @Column(name = "open_time")
+    private String openTime;
+
+    @Column(name = "close_time")
+    private String closeTime;
+
+    @Column(name = "local_culture_notes", columnDefinition = "VARCHAR(500)")
+    private String localCultureNotes;
+
     @Column(name = "updated_at")
     @UpdateTimestamp
     private LocalDateTime updatedAt;

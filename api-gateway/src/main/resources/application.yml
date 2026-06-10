@@ -37,7 +37,7 @@ spring:
         - id: order-service
           uri: lb://order-service
           predicates:
-            - Path=/api/tables/**, /api/sessions/**, /api/orders/**, /api/staff-calls/**, /api/admin/tables/**, /api/payments/**
+            - Path=/api/tables/**, /api/sessions/**, /api/orders/**, /api/staff-calls/**, /api/admin/tables/**, /api/payments/**, /api/customer/reservations/**, /api/staff/reservations/**, /api/admin/reservations/**
 
         # ── kds-service ───────────────────────────────────────────────
         - id: kds-service
@@ -66,6 +66,12 @@ spring:
           uri: lb://ai-service
           predicates:
             - Path=/api/internal/ai/**
+
+        # ── inventory-service ────────────────────────────────────────────
+        - id: inventory-service
+          uri: lb://inventory-service
+          predicates:
+            - Path=/api/admin/inventory/**
 
         # ── notification-service (WebSocket) ─────────────────────────
         - id: notification-service-ws

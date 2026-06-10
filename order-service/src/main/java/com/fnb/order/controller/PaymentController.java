@@ -45,6 +45,23 @@ public class PaymentController {
     }
 
     /**
+     * Frontend gọi API này sau khi Đặt bàn để lấy mã QR thanh toán tiền cọc.
+     */
+    @PostMapping("/reservation-deposit")
+    public ResponseEntity<?> createReservationDepositLink(
+            @RequestParam UUID reservationId,
+            @RequestParam String redirectUrl,
+            @RequestParam(required = false) Long amount) {
+        log.info("Request create QR Deposit for Reservation: {} with amount: {}", reservationId, amount);
+        try {
+            java.util.Map<String, String> payosData = payOSPaymentService.createReservationDepositLink(reservationId, redirectUrl, amount);
+            return ResponseEntity.ok(payosData);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
      * API này ĐẶC BIỆT DÀNH RIÊNG cho con bot của PayOS gọi vào một cách thầm kín.
      * Khi khách chuyển khoản thành công, PayOS sẽ bắn data vào đây.
      */

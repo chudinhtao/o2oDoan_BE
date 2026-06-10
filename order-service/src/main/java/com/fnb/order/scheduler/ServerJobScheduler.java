@@ -88,12 +88,15 @@ public class ServerJobScheduler {
                         })
                         .max().orElse(0);
 
+                String msg = "Cảnh báo quầy đồ: Bàn " + (tableNumber != null ? tableNumber : "Mang về") + " có " + urgentIds.size() + " món chờ bưng quá " + maxWait + " giây!";
+
                 DeliveryReadyAlertEvent alert = DeliveryReadyAlertEvent.builder()
                         .tableNumber(tableNumber)
                         .tableId(order.getTable() != null ? order.getTable().getId() : null)
                         .zone(order.getTable() != null ? order.getTable().getZone() : "Takeaway")
                         .urgentItemIds(urgentIds)
                         .urgencyLevel(maxWait >= 120 ? "CRITICAL" : "WARNING")
+                        .message(msg)
                         .alertAt(now)
                         .build();
 
@@ -143,6 +146,8 @@ public class ServerJobScheduler {
 
         staleCalls.forEach(call -> {
             long pendingSeconds = ChronoUnit.SECONDS.between(call.getCreatedAt(), LocalDateTime.now());
+            String msg = "CỨU VIỆN BÀN " + (call.getTable() != null ? call.getTable().getNumber() : "Mang về") + ": Yêu cầu gọi phục vụ chưa có ai xử lý (" + pendingSeconds + "s)!";
+
             StaffCallSpilloverEvent event = StaffCallSpilloverEvent.builder()
                     .callId(call.getId())
                     .tableNumber(call.getTable() != null ? call.getTable().getNumber() : null)
@@ -150,6 +155,7 @@ public class ServerJobScheduler {
                     .zone(call.getTable() != null ? call.getTable().getZone() : null)
                     .callType(call.getCallType())
                     .pendingSeconds(pendingSeconds)
+                    .message(msg)
                     .alertAt(LocalDateTime.now())
                     .build();
 

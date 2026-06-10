@@ -106,6 +106,8 @@ public class OrderController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String orderType,
+            @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
             @RequestParam(defaultValue = "0") int page,
@@ -119,7 +121,7 @@ public class OrderController {
         );
         Pageable pageable = PageRequest.of(page, size, sortObj);
 
-        return ApiResponse.ok(orderService.getOrderHistory(status, source, search, startDate, endDate, pageable));
+        return ApiResponse.ok(orderService.getOrderHistory(status, source, search, orderType, paymentMethod, startDate, endDate, pageable));
     }
 
     @PostMapping("/{id}/checkout")
@@ -172,9 +174,11 @@ public class OrderController {
     public ApiResponse<String> cancelItem(
             @PathVariable UUID id,
             @PathVariable UUID itemId,
-            @RequestBody(required = false) Map<String, String> payload) {
+            @RequestBody(required = false) Map<String, String> payload,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdStr) {
         String reason = payload != null ? payload.get("reason") : null;
-        orderService.cancelItem(id, itemId, reason);
+        UUID userId = userIdStr != null ? UUID.fromString(userIdStr) : null;
+        orderService.cancelItem(id, itemId, reason, userId);
         return ApiResponse.ok("Đã huỷ món thành công", null);
     }
 
@@ -183,9 +187,11 @@ public class OrderController {
     public ApiResponse<String> cancelTicket(
             @PathVariable UUID id,
             @PathVariable UUID ticketId,
-            @RequestBody(required = false) Map<String, String> payload) {
+            @RequestBody(required = false) Map<String, String> payload,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdStr) {
         String reason = payload != null ? payload.get("reason") : null;
-        orderService.cancelTicket(id, ticketId, reason);
+        UUID userId = userIdStr != null ? UUID.fromString(userIdStr) : null;
+        orderService.cancelTicket(id, ticketId, reason, userId);
         return ApiResponse.ok("Đã huỷ phiếu yêu cầu thành công", null);
     }
 
@@ -194,9 +200,11 @@ public class OrderController {
     public ApiResponse<String> returnItem(
             @PathVariable UUID id,
             @PathVariable UUID itemId,
-            @RequestBody(required = false) Map<String, String> payload) {
+            @RequestBody(required = false) Map<String, String> payload,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdStr) {
         String reason = payload != null ? payload.get("reason") : null;
-        orderService.returnItem(id, itemId, reason);
+        UUID userId = userIdStr != null ? UUID.fromString(userIdStr) : null;
+        orderService.returnItem(id, itemId, reason, userId);
         return ApiResponse.ok("Đã trả món và hoàn tiền thành công", null);
     }
 
@@ -204,5 +212,11 @@ public class OrderController {
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SERVER')")
     public ApiResponse<List<PosTableResponse>> getActiveTakeawayOrders() {
         return ApiResponse.ok("", orderService.getActiveTakeawayOrders());
+    }
+
+    @GetMapping("/{id}/timeline")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public ApiResponse<?> getOrderTimeline(@PathVariable UUID id) {
+        return ApiResponse.ok(orderService.getOrderTimeline(id));
     }
 }

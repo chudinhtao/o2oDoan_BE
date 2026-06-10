@@ -10,6 +10,7 @@ import java.util.UUID;
 @Data
 @Builder
 public class OrderCreatedItemEvent {
+    private UUID orderLineItemId;
     private UUID menuItemId;
     private String itemName;
     private int quantity;

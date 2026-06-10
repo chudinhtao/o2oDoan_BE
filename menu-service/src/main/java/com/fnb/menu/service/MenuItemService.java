@@ -35,6 +35,7 @@ import com.fnb.menu.dto.event.MenuUpdatedEvent;
 import com.fnb.menu.entity.Promotion;
 import com.fnb.menu.repository.PromotionRepository;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 @Slf4j
 @Service
@@ -46,6 +47,7 @@ public class MenuItemService {
     private final ItemOptionRepository itemOptionRepository;
     private final CloudinaryService cloudinaryService;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final StringRedisTemplate stringRedisTemplate;
 
     private final PromotionRepository promotionRepository;
 
@@ -119,6 +121,7 @@ public class MenuItemService {
                 .station(request.getStation())
                 .isFeatured(request.isFeatured())
                 .isAvailable(request.isAvailable())
+                .taxRate(request.getTaxRate())
                 .build();
 
         if (request.getOptionGroups() != null) {
@@ -129,6 +132,7 @@ public class MenuItemService {
                         .type(groupReq.getType())
                         .isRequired(groupReq.isRequired())
                         .displayOrder(groupReq.getDisplayOrder())
+                        .options(new ArrayList<>())
                         .build();
 
                 if (groupReq.getOptions() != null) {
@@ -144,7 +148,13 @@ public class MenuItemService {
             });
         }
 
-        return toResponse(menuItemRepository.save(item));
+        MenuItem savedItem = menuItemRepository.save(item);
+        try {
+            stringRedisTemplate.convertAndSend("ai-menu-sync-topic", savedItem.getId().toString());
+        } catch (Exception e) {
+            log.error("Lỗi khi publish sự kiện đồng bộ AI: {}", e.getMessage());
+        }
+        return toResponse(savedItem);
     }
 
     @Transactional
@@ -190,8 +200,40 @@ public class MenuItemService {
         item.setStation(request.getStation());
         item.setFeatured(request.isFeatured());
         item.setAvailable(request.isAvailable());
+        item.setTaxRate(request.getTaxRate());
 
-        return toResponse(menuItemRepository.save(item));
+        if (request.getOptionGroups() != null) {
+            item.getOptionGroups().clear();
+            request.getOptionGroups().forEach(groupReq -> {
+                ItemOptionGroup group = ItemOptionGroup.builder()
+                        .item(item)
+                        .name(groupReq.getName())
+                        .type(groupReq.getType())
+                        .isRequired(groupReq.isRequired())
+                        .displayOrder(groupReq.getDisplayOrder())
+                        .options(new ArrayList<>())
+                        .build();
+
+                if (groupReq.getOptions() != null) {
+                    groupReq.getOptions().forEach(optReq ->
+                        group.getOptions().add(ItemOption.builder()
+                                .group(group)
+                                .name(optReq.getName())
+                                .extraPrice(optReq.getExtraPrice())
+                                .build())
+                    );
+                }
+                item.getOptionGroups().add(group);
+            });
+        }
+
+        MenuItem savedItem = menuItemRepository.save(item);
+        try {
+            stringRedisTemplate.convertAndSend("ai-menu-sync-topic", savedItem.getId().toString());
+        } catch (Exception e) {
+            log.error("Lỗi khi publish sự kiện đồng bộ AI: {}", e.getMessage());
+        }
+        return toResponse(savedItem);
     }
 
     @Transactional
@@ -438,6 +480,8 @@ public class MenuItemService {
                 .description(item.getDescription())
                 .imageUrl(item.getImageUrl())
                 .basePrice(item.getBasePrice())
+                .taxRate(item.getTaxRate() != null ? item.getTaxRate() : 
+                         (item.getCategory() != null && item.getCategory().getTaxRate() != null ? item.getCategory().getTaxRate() : new BigDecimal("0.00")))
                 .salePrice(finalSalePrice)
                 .saleStartAt(startAt)
                 .saleEndAt(endAt)

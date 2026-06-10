@@ -9,7 +9,10 @@ import dev.langchain4j.service.spring.AiService;
  * Không dùng tools, chỉ phân loại ý định.
  * Trả về đúng 1 từ: MENU, ORDER, hoặc GENERAL.
  */
-@AiService(tools = {})
+@AiService(wiringMode = dev.langchain4j.service.spring.AiServiceWiringMode.EXPLICIT,
+           chatModel = "fastChatModel",
+           chatMemoryProvider = "chatMemoryProvider",
+           tools = {})
 public interface CustomerRouterAgent {
 
     @SystemMessage("""
@@ -24,5 +27,5 @@ public interface CustomerRouterAgent {
         1. Chỉ trả về đúng 1 từ: MENU, ORDER, hoặc GENERAL. Không giải thích, không thêm bất kỳ ký tự nào khác.
         2. Nếu không chắc chắn, mặc định trả về GENERAL.
         """)
-    String routeIntent(@UserMessage String userMessage);
+    String routeIntent(@dev.langchain4j.service.MemoryId String memoryId, @UserMessage String userMessage);
 }

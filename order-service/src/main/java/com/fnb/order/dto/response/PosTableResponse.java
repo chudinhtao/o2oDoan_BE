@@ -25,4 +25,5 @@ public class PosTableResponse {
     private LocalDateTime openedAt;
     private UUID parentTableId;
     private Integer parentTableNumber;
+    private String zone;
 }

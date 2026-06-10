@@ -303,6 +303,7 @@ public class CartService {
             newItem.setItemName(validation.name());
             // Giá gốc — Pricing Engine sẽ tính discount động khi checkout
             newItem.setUnitPrice(validation.basePrice());
+            newItem.setTaxRate(validation.taxRate());
             newItem.setStation(validation.station());
             newItem.setImageUrl(validation.imageUrl());
 

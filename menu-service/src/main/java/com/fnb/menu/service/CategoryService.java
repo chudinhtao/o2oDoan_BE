@@ -71,6 +71,7 @@ public class CategoryService {
                 .name(request.getName())
                 .imageUrl(request.getImageUrl())
                 .displayOrder(request.getDisplayOrder())
+                .taxRate(request.getTaxRate())
                 .build();
         return toResponse(categoryRepository.save(category));
     }
@@ -90,6 +91,7 @@ public class CategoryService {
 
         category.setName(request.getName());
         category.setDisplayOrder(request.getDisplayOrder());
+        category.setTaxRate(request.getTaxRate());
         return toResponse(categoryRepository.save(category));
     }
 
@@ -154,6 +156,7 @@ public class CategoryService {
                 .imageUrl(c.getImageUrl())
                 .displayOrder(c.getDisplayOrder())
                 .isActive(c.isActive())
+                .taxRate(c.getTaxRate())
                 .build();
     }
 }

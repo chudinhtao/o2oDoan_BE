@@ -21,6 +21,7 @@ public class CancelAlertEvent {
     private UUID orderId;
     private Integer tableNumber;
     private List<CancelledItem> cancelledItems;
+    private String message;
     private LocalDateTime cancelledAt;
 
     @Data

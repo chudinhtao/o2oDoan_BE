@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -50,10 +51,15 @@ public class OrderService {
     private final TableSessionRepository sessionRepository;
     private final TableRepository tableRepository;
     private final StaffCallRepository staffCallRepository;
+    private final AuditLogRepository auditLogRepository;
     private final MenuServiceClient menuServiceClient;
     private final CartService cartService;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final ServerDeliveryService serverDeliveryService;
+
+    public List<AuditLog> getOrderTimeline(UUID orderId) {
+        return auditLogRepository.findByTargetIdOrderByCreatedAtAsc(orderId.toString());
+    }
 
     @Transactional
     public void submitTicket(String sessionToken, TicketRequest request) {
@@ -154,6 +160,8 @@ public class OrderService {
                         .menuItemId(cartItem.getMenuItemId())
                         .itemName(cartItem.getItemName())
                         .unitPrice(cartItem.getUnitPrice())
+                        .taxRate(cartItem.getTaxRate())
+                        .imageUrl(cartItem.getImageUrl())
                         .quantity(1) // Ép về 1 để bếp kiểm soát từng món
                         .note(cartItem.getNote())
                         .station(cartItem.getStation())
@@ -170,6 +178,7 @@ public class OrderService {
 
                         OrderItemOption option = OrderItemOption.builder()
                                 .ticketItem(ticketItem)
+                                .menuItemId(optReq.getOptionId())
                                 .optionName(optReq.getOptionName())
                                 .extraPrice(extraPrice)
                                 .build();
@@ -182,6 +191,7 @@ public class OrderService {
                 ticketItems.add(ticketItem);
 
                 BigDecimal itemCost = cartItem.getUnitPrice().add(optionTotal);
+                ticketItem.setTaxAmount(PricingEngine.calculateTaxFromGross(itemCost, ticketItem.getTaxRate()));
                 ticketTotal = ticketTotal.add(itemCost);
             }
         }
@@ -204,12 +214,14 @@ public class OrderService {
         List<OrderCreatedItemEvent> eventItems = ticketItems.stream().map(ti -> {
             List<OrderCreatedOptionEvent> eventOptions = ti.getOptions().stream()
                     .map(opt -> OrderCreatedOptionEvent.builder()
+                            .menuItemId(opt.getMenuItemId())
                             .optionName(opt.getOptionName())
                             .extraPrice(opt.getExtraPrice())
                             .build())
                     .collect(Collectors.toList());
 
             return OrderCreatedItemEvent.builder()
+                    .orderLineItemId(ti.getId())
                     .menuItemId(ti.getMenuItemId())
                     .itemName(ti.getItemName())
                     .quantity(ti.getQuantity())
@@ -300,7 +312,9 @@ public class OrderService {
                             .note(item.getNote())
                             .status(item.getStatus())
                             .station(item.getStation())
+                            .imageUrl(item.getImageUrl())
                             .createdAt(item.getCreatedAt())
+                            .servedAt(item.getServedAt())
                             .options(optDTOs)
                             .isAlertSent(item.getIsAlertSent())
                             .kitchenAlertSent(item.getKitchenAlertSent())
@@ -352,6 +366,7 @@ public class OrderService {
                             summaryItems.add(OrderSummaryItemResponse.builder()
                                     .menuItemId(item.getMenuItemId())
                                     .itemName(item.getItemName())
+                                    .imageUrl(item.getImageUrl())
                                     .quantity(item.getQuantity())
                                     .unitPrice(item.getUnitPrice())
                                     .priceTotal(calculateItemTotal(item))
@@ -374,11 +389,27 @@ public class OrderService {
                 .source(order.getSource())
                 .orderType(order.getOrderType())
                 .subtotal(order.getSubtotal())
+                .depositAmount(order.getDepositAmount())
                 .discount(order.getDiscount())
                 .total(order.getTotal())
                 .promotionId(order.getPromotionId())
                 .promotionCode(order.getPromotionCode())
+                .discountType(order.getDiscountType())
+                .discountRate(order.getDiscountRate())
+                .minOrderAmount(order.getMinOrderAmount())
+                .maxDiscountValue(order.getMaxDiscountValue())
+                .isStackable(order.getIsStackable())
+                .tax(order.getTax())
+                .serviceFee(order.getServiceFee())
+                .paymentMethod(order.getPaymentMethod())
+                .paymentDetail(order.getPaymentDetail())
+                .payosOrderCode(order.getPayosOrderCode())
+                .paidAt(order.getPaidAt())
+                .cashierId(order.getCashierId())
+                .cancelledBy(order.getCancelledBy())
+                .cancelReason(order.getCancelReason())
                 .createdAt(order.getCreatedAt())
+                .updatedAt(order.getUpdatedAt())
                 .tickets(ticketDTOs)
                 .summaryItems(summaryItems)
                 .build();
@@ -406,7 +437,7 @@ public class OrderService {
     }
 
     @Transactional
-    public void cancelItem(UUID orderId, UUID itemId, String reason) {
+    public void cancelItem(UUID orderId, UUID itemId, String reason, UUID cancelledBy) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Hóa đơn không tồn tại"));
 
@@ -443,6 +474,7 @@ public class OrderService {
         }
 
         itemToCancel.setStatus("CANCELLED");
+        if (cancelledBy != null) itemToCancel.setCancelledBy(cancelledBy);
         if (reason != null && !reason.trim().isEmpty()) {
             itemToCancel.setNote(
                     (itemToCancel.getNote() != null ? itemToCancel.getNote() + " | " : "") + "Huỷ lý do: " + reason);
@@ -490,6 +522,7 @@ public class OrderService {
 
         // Bắn event cập nhật KDS để bếp biết
         TicketUpdatedEvent event = TicketUpdatedEvent.builder()
+                .orderId(order.getId())
                 .ticketId(targetTicket.getId())
                 .itemId(itemToCancel.getId())
                 .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
@@ -501,6 +534,18 @@ public class OrderService {
                 .orderType(order.getOrderType())
                 .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
+                .items(List.of(TicketUpdatedEvent.CancelledItem.builder()
+                        .orderLineItemId(itemToCancel.getId())
+                        .menuItemId(itemToCancel.getMenuItemId())
+                        .quantity(itemToCancel.getQuantity())
+                        .kitchenStatus(itemToCancel.getStatus())
+                        .options(itemToCancel.getOptions().stream()
+                                .map(o -> TicketUpdatedEvent.CancelledOption.builder()
+                                        .menuItemId(o.getMenuItemId())
+                                        .optionName(o.getOptionName())
+                                        .build())
+                                .collect(Collectors.toList()))
+                        .build()))
                 .build();
         applicationEventPublisher.publishEvent(event);
 
@@ -515,7 +560,7 @@ public class OrderService {
     }
 
     @Transactional
-    public void returnItem(UUID orderId, UUID itemId, String reason) {
+    public void returnItem(UUID orderId, UUID itemId, String reason, UUID returnedBy) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Hóa đơn không tồn tại"));
 
@@ -553,6 +598,7 @@ public class OrderService {
         }
 
         itemToReturn.setStatus("RETURNED");
+        if (returnedBy != null) itemToReturn.setCancelledBy(returnedBy);
         if (reason != null && !reason.trim().isEmpty()) {
             itemToReturn.setNote((itemToReturn.getNote() != null ? itemToReturn.getNote() + " | " : "")
                     + "Trả hàng lý do: " + reason);
@@ -562,6 +608,7 @@ public class OrderService {
         orderRepository.save(order);
 
         TicketUpdatedEvent event = TicketUpdatedEvent.builder()
+                .orderId(order.getId())
                 .ticketId(targetTicket.getId())
                 .itemId(itemToReturn.getId())
                 .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
@@ -573,6 +620,18 @@ public class OrderService {
                 .orderType(order.getOrderType())
                 .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
+                .items(List.of(TicketUpdatedEvent.CancelledItem.builder()
+                        .orderLineItemId(itemToReturn.getId())
+                        .menuItemId(itemToReturn.getMenuItemId())
+                        .quantity(itemToReturn.getQuantity())
+                        .kitchenStatus(itemToReturn.getStatus())
+                        .options(itemToReturn.getOptions().stream()
+                                .map(o -> TicketUpdatedEvent.CancelledOption.builder()
+                                        .menuItemId(o.getMenuItemId())
+                                        .optionName(o.getOptionName())
+                                        .build())
+                                .collect(Collectors.toList()))
+                        .build()))
                 .build();
         applicationEventPublisher.publishEvent(event);
 
@@ -588,7 +647,7 @@ public class OrderService {
     }
 
     @Transactional
-    public void cancelTicket(UUID orderId, UUID ticketId, String reason) {
+    public void cancelTicket(UUID orderId, UUID ticketId, String reason, UUID cancelledBy) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Hóa đơn không tồn tại"));
 
@@ -613,6 +672,7 @@ public class OrderService {
         for (OrderTicketItem item : targetTicket.getItems()) {
             if (!"CANCELLED".equals(item.getStatus())) {
                 item.setStatus("CANCELLED");
+                if (cancelledBy != null) item.setCancelledBy(cancelledBy);
                 if (reason != null && !reason.trim().isEmpty()) {
                     item.setNote((item.getNote() != null ? item.getNote() + " | " : "") + "NV Huỷ: " + reason);
                 }
@@ -625,6 +685,7 @@ public class OrderService {
         orderRepository.save(order);
 
         TicketUpdatedEvent event = TicketUpdatedEvent.builder()
+                .orderId(order.getId())
                 .ticketId(targetTicket.getId())
                 .itemId(null)
                 .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
@@ -636,6 +697,20 @@ public class OrderService {
                 .orderType(order.getOrderType())
                 .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
+                .items(targetTicket.getItems().stream()
+                        .map(i -> TicketUpdatedEvent.CancelledItem.builder()
+                                .orderLineItemId(i.getId())
+                                .menuItemId(i.getMenuItemId())
+                                .quantity(i.getQuantity())
+                                .kitchenStatus(i.getStatus())
+                                .options(i.getOptions().stream()
+                                        .map(o -> TicketUpdatedEvent.CancelledOption.builder()
+                                                .menuItemId(o.getMenuItemId())
+                                                .optionName(o.getOptionName())
+                                                .build())
+                                        .collect(Collectors.toList()))
+                                .build())
+                        .collect(Collectors.toList()))
                 .build();
         applicationEventPublisher.publishEvent(event);
 
@@ -720,6 +795,7 @@ public class OrderService {
         orderRepository.save(order);
 
         TicketUpdatedEvent event = TicketUpdatedEvent.builder()
+                .orderId(order.getId())
                 .ticketId(targetTicket.getId())
                 .itemId(itemToCancel.getId())
                 .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
@@ -731,6 +807,18 @@ public class OrderService {
                 .orderType(order.getOrderType())
                 .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
+                .items(List.of(TicketUpdatedEvent.CancelledItem.builder()
+                        .orderLineItemId(itemToCancel.getId())
+                        .menuItemId(itemToCancel.getMenuItemId())
+                        .quantity(itemToCancel.getQuantity())
+                        .kitchenStatus(itemToCancel.getStatus())
+                        .options(itemToCancel.getOptions().stream()
+                                .map(o -> TicketUpdatedEvent.CancelledOption.builder()
+                                        .menuItemId(o.getMenuItemId())
+                                        .optionName(o.getOptionName())
+                                        .build())
+                                .collect(Collectors.toList()))
+                        .build()))
                 .build();
         applicationEventPublisher.publishEvent(event);
 
@@ -792,6 +880,7 @@ public class OrderService {
         orderRepository.save(order);
 
         TicketUpdatedEvent event = TicketUpdatedEvent.builder()
+                .orderId(order.getId())
                 .ticketId(targetTicket.getId())
                 .itemId(null)
                 .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
@@ -803,6 +892,20 @@ public class OrderService {
                 .orderType(order.getOrderType())
                 .orderIdentifier(buildOrderIdentifier(order))
                 .updatedAt(LocalDateTime.now())
+                .items(targetTicket.getItems().stream()
+                        .map(i -> TicketUpdatedEvent.CancelledItem.builder()
+                                .orderLineItemId(i.getId())
+                                .menuItemId(i.getMenuItemId())
+                                .quantity(i.getQuantity())
+                                .kitchenStatus(i.getStatus())
+                                .options(i.getOptions().stream()
+                                        .map(o -> TicketUpdatedEvent.CancelledOption.builder()
+                                                .menuItemId(o.getMenuItemId())
+                                                .optionName(o.getOptionName())
+                                                .build())
+                                        .collect(Collectors.toList()))
+                                .build())
+                        .collect(Collectors.toList()))
                 .build();
         applicationEventPublisher.publishEvent(event);
 
@@ -826,6 +929,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public PageResponse<OrderResponse> getOrderHistory(String status, String source, String search,
+            String orderType, String paymentMethod,
             LocalDateTime startDate, LocalDateTime endDate, Pageable pageable) {
         Specification<Order> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -841,6 +945,12 @@ public class OrderService {
             if (endDate != null) {
                 predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), endDate));
             }
+            if (orderType != null && !orderType.isEmpty()) {
+                predicates.add(cb.equal(root.get("orderType"), orderType));
+            }
+            if (paymentMethod != null && !paymentMethod.isEmpty()) {
+                predicates.add(cb.equal(root.get("paymentMethod"), paymentMethod));
+            }
             if (search != null && !search.isEmpty()) {
                 String searchPattern = "%" + search.toLowerCase() + "%";
                 // 1. Search by Order ID (UUID AS String)
@@ -854,8 +964,12 @@ public class OrderService {
                 // 3. Search by Promotion Code
                 Predicate promoPredicate = cb.like(cb.lower(root.get("promotionCode")), searchPattern);
                 
+                // 4. Search by Customer Name or Phone
+                Predicate customerNamePredicate = cb.like(cb.lower(root.get("customerName")), searchPattern);
+                Predicate customerPhonePredicate = cb.like(cb.lower(root.get("customerPhone")), searchPattern);
+
                 // Combine with OR
-                predicates.add(cb.or(idPredicate, tableNumPredicate, tableNamePredicate, promoPredicate));
+                predicates.add(cb.or(idPredicate, tableNumPredicate, tableNamePredicate, promoPredicate, customerNamePredicate, customerPhonePredicate));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -932,6 +1046,36 @@ public class OrderService {
         recalculateTotal(order);
         handleSessionAndTableWhenOrderCancelled(order);
         orderRepository.save(order);
+
+        List<OrderPaidEvent.LineItem> lineItems = order.getTickets().stream()
+                // Do items were all marked CANCELLED, we need to collect them to refund inventory
+                .flatMap(t -> t.getItems().stream())
+                .map(i -> OrderPaidEvent.LineItem.builder()
+                        .orderLineItemId(i.getId())
+                        .menuItemId(i.getMenuItemId())
+                        .quantity(i.getQuantity())
+                        .modifiers(i.getOptions() != null ? i.getOptions().stream()
+                                .map(o -> OrderPaidEvent.Modifier.builder()
+                                        .menuItemId(o.getMenuItemId())
+                                        .optionName(o.getOptionName())
+                                        .build())
+                                .collect(Collectors.toList()) : null)
+                        .build())
+                .toList();
+
+        OrderCancelledEvent cancelledEvent = OrderCancelledEvent.builder()
+                .orderId(order.getId())
+                .tableId(order.getTable() != null ? order.getTable().getId() : null)
+                .tableNumber(order.getTable() != null ? order.getTable().getNumber() : null)
+                .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
+                .cancelledAt(LocalDateTime.now())
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
+                .cancelReason(reason)
+                .cancelledBy(cancellerId)
+                .lineItems(lineItems)
+                .build();
+        applicationEventPublisher.publishEvent(cancelledEvent);
 
         log.info("Đã hủy hóa đơn: {}, lý do: {}, note: {}", id, reason, note);
     }
@@ -1015,6 +1159,24 @@ public class OrderService {
         }
 
         String orderIdentifier = buildOrderIdentifier(order);
+        
+        List<OrderPaidEvent.LineItem> lineItems = order.getTickets().stream()
+                .filter(t -> !"CANCELLED".equals(t.getStatus()))
+                .flatMap(t -> t.getItems().stream())
+                .filter(i -> !"CANCELLED".equals(i.getStatus()) && !"RETURNED".equals(i.getStatus()))
+                .map(i -> OrderPaidEvent.LineItem.builder()
+                        .orderLineItemId(i.getId())
+                        .menuItemId(i.getMenuItemId())
+                        .quantity(i.getQuantity())
+                        .modifiers(i.getOptions() != null ? i.getOptions().stream()
+                                .map(o -> OrderPaidEvent.Modifier.builder()
+                                        .menuItemId(o.getMenuItemId())
+                                        .optionName(o.getOptionName())
+                                        .build())
+                                .collect(Collectors.toList()) : null)
+                        .build())
+                .toList();
+
         OrderPaidEvent paidEvent = OrderPaidEvent.builder()
                 .orderId(order.getId())
                 .tableId(table != null ? table.getId() : null)
@@ -1023,6 +1185,7 @@ public class OrderService {
                 .paidAt(LocalDateTime.now())
                 .orderType(order.getOrderType())
                 .orderIdentifier(orderIdentifier)
+                .lineItems(lineItems)
                 .build();
         applicationEventPublisher.publishEvent(paidEvent);
 
@@ -1084,6 +1247,17 @@ public class OrderService {
             
             recalculateTotal(order);
             orderRepository.save(order);
+            
+            // Publish event to update UI via WebSockets
+            applicationEventPublisher.publishEvent(OrderStatusUpdatedEvent.builder()
+                    .orderId(order.getId())
+                    .status(order.getStatus())
+                    .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
+                    .tableNumber(order.getTable() != null && order.getTable().getNumber() != null ? String.valueOf(order.getTable().getNumber()) : null)
+                    .orderType(order.getOrderType())
+                    .orderIdentifier(buildOrderIdentifier(order))
+                    .build());
+                    
             log.info("Đã gỡ mã giảm giá cho Order {}", order.getId());
             return;
         }
@@ -1106,13 +1280,48 @@ public class OrderService {
         // minOrderAmount lấy từ requirement (nếu có)
         if (promo.requirement() != null) {
             order.setMinOrderAmount(promo.requirement().minOrderAmount());
+        } else {
+            order.setMinOrderAmount(null);
         }
         order.setMaxDiscountValue(promo.maxDiscount());
         order.setIsStackable(promo.stackable() != null ? promo.stackable() : true);
         
         // Tính tiền giảm tại chỗ
         recalculateTotal(order);
+        
+        // Kiểm tra xem mã giảm giá có bị tự động gỡ bỏ trong quá trình recalculateTotal không
+        if (order.getPromotionCode() == null) {
+            BigDecimal rawCouponDiscount = PricingEngine.calculateRawDiscount(
+                order.getSubtotal() != null ? order.getSubtotal() : BigDecimal.ZERO, 
+                promo.discountType(), promo.discountValue(), promo.maxDiscount()
+            );
+            
+            if (order.getMinOrderAmount() != null && 
+                (order.getSubtotal() != null ? order.getSubtotal() : BigDecimal.ZERO).compareTo(order.getMinOrderAmount()) < 0) {
+                throw new BusinessException(String.format(
+                    "Đơn hàng chưa đạt giá trị tối thiểu %sđ để áp dụng mã giảm giá này.",
+                    new java.text.DecimalFormat("#,###").format(order.getMinOrderAmount())
+                ));
+            } else {
+                throw new BusinessException(String.format(
+                    "Mã giảm giá này (giảm %sđ) không được áp dụng do chương trình khuyến mãi tự động có ưu đãi tốt hơn (giảm %sđ).",
+                    new java.text.DecimalFormat("#,###").format(rawCouponDiscount),
+                    new java.text.DecimalFormat("#,###").format(order.getDiscount())
+                ));
+            }
+        }
+        
         orderRepository.save(order);
+        
+        // Publish event to update UI via WebSockets
+        applicationEventPublisher.publishEvent(OrderStatusUpdatedEvent.builder()
+                .orderId(order.getId())
+                .status(order.getStatus())
+                .sessionToken(order.getSession() != null ? order.getSession().getSessionToken() : null)
+                .tableNumber(order.getTable() != null && order.getTable().getNumber() != null ? String.valueOf(order.getTable().getNumber()) : null)
+                .orderType(order.getOrderType())
+                .orderIdentifier(buildOrderIdentifier(order))
+                .build());
         
         log.info("Đã áp dụng mã {} cho Order {}, giảm giá: {}", code, order.getId(), order.getDiscount());
     }
@@ -1131,6 +1340,11 @@ public class OrderService {
             rawSubtotal = activeItems.stream()
                     .map(this::calculateItemTotal)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            BigDecimal grossTax = activeItems.stream()
+                    .map(i -> i.getTaxAmount() != null ? i.getTaxAmount().multiply(BigDecimal.valueOf(i.getQuantity())) : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            order.setTax(grossTax); // Sẽ được điều chỉnh theo discount ở cuối
         }
         order.setSubtotal(rawSubtotal);
 
@@ -1297,8 +1511,18 @@ public class OrderService {
         }
 
         order.setDiscount(automatedDiscount.add(couponDiscount));
-        BigDecimal finalTotal = rawSubtotal.subtract(order.getDiscount()).max(BigDecimal.ZERO);
+        BigDecimal finalTotal = rawSubtotal.subtract(order.getDiscount());
+        if (order.getDepositAmount() != null) {
+            finalTotal = finalTotal.subtract(order.getDepositAmount());
+        }
+        finalTotal = finalTotal.max(BigDecimal.ZERO);
         order.setTotal(finalTotal);
+
+        // Điều chỉnh thuế theo tỷ lệ giảm giá (nếu có giảm giá thì thuế cũng giảm tương ứng)
+        if (rawSubtotal.compareTo(BigDecimal.ZERO) > 0 && order.getTax() != null) {
+            BigDecimal ratio = finalTotal.divide(rawSubtotal, 4, RoundingMode.HALF_UP);
+            order.setTax(order.getTax().multiply(ratio).setScale(2, RoundingMode.HALF_UP));
+        }
     }
 
     // Đã thay thế bởi PricingEngine

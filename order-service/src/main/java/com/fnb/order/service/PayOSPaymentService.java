@@ -31,6 +31,7 @@ public class PayOSPaymentService {
     private final OrderRepository orderRepository;
     private final OrderService orderService;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final com.fnb.order.repository.ReservationRepository reservationRepository;
 
     @Value("${app.qr-base-url}")
     private String qrBaseUrl;
@@ -56,13 +57,30 @@ public class PayOSPaymentService {
                 throw new AccessDeniedException("Bạn không có quyền thực hiện thanh toán cho đơn hàng này!");
             }
 
-            // 3. Chuẩn bị yêu cầu gửi sang PayOS
+            // 3. Xử lý trường hợp số tiền thanh toán = 0 (Ví dụ: áp mã giảm giá 100%)
+            String baseUrl = qrBaseUrl.replace("/table?qr=", "/");
+            if (!baseUrl.endsWith("/")) {
+                baseUrl += "/";
+            }
+
+            if (totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                log.info("Đơn hàng {} có số tiền thanh toán <= 0, tiến hành đóng đơn hàng tự động.", orderId);
+                orderService.closeOrder(order.getId(), true, null, "VOUCHER", "{\"paid_by_voucher\": true}");
+                
+                java.util.Map<String, String> result = new java.util.HashMap<>();
+                // Trả về trang thanh toán, khi load lại sẽ thấy trạng thái PAID
+                result.put("checkoutUrl", baseUrl + "payment?t=" + sessionToken);
+                return result;
+            }
+
+            // 4. Chuẩn bị yêu cầu gửi sang PayOS
+
             CreatePaymentLinkRequest request = CreatePaymentLinkRequest.builder()
                 .orderCode(orderCode)
                 .amount(totalAmount.longValue())
                 .description("TT Don hang " + orderCode)
-                .returnUrl(qrBaseUrl.replace("?qr=", "") + "tracking?t=" + sessionToken + "&payment=success") 
-                .cancelUrl(qrBaseUrl.replace("?qr=", "") + "payment?t=" + sessionToken) 
+                .returnUrl(baseUrl + "tracking?t=" + sessionToken + "&payment=success") 
+                .cancelUrl(baseUrl + "payment?t=" + sessionToken) 
                 .build();
 
             CreatePaymentLinkResponse response = payOS.paymentRequests().create(request);
@@ -91,7 +109,47 @@ public class PayOSPaymentService {
             throw e;
         } catch (Exception e) {
             log.error("Lỗi khi tạo payment link với PayOS: ", e);
-            throw new RuntimeException("Không thể tạo phiên thanh toán PayOS", e);
+            throw new com.fnb.common.exception.BusinessException("Không thể tạo phiên thanh toán PayOS: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Creates a payment link or QR code through PayOS for a Reservation Deposit.
+     */
+    @Transactional
+    public java.util.Map<String, String> createReservationDepositLink(UUID reservationId, String redirectUrl, Long amount) {
+        try {
+            Long orderCode = System.currentTimeMillis() / 1000; // Unique orderCode for PayOS
+
+            com.fnb.order.entity.Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new RuntimeException("Mã đặt bàn không hợp lệ"));
+
+            long depositAmount = (amount != null && amount > 0) ? amount : 200000L;
+
+            CreatePaymentLinkRequest request = CreatePaymentLinkRequest.builder()
+                .orderCode(orderCode)
+                .amount(depositAmount)
+                .description("Coc dat ban " + orderCode)
+                .returnUrl(redirectUrl + "?status=success") 
+                .cancelUrl(redirectUrl + "?status=cancel") 
+                .build();
+
+            CreatePaymentLinkResponse response = payOS.paymentRequests().create(request);
+            
+            reservation.setPayosOrderCode(orderCode);
+            reservationRepository.save(reservation);
+
+            log.info("Tạo link cọc PayOS thành công cho Reservation {}, PayOS Code: {}", reservationId, orderCode);
+            java.util.Map<String, String> result = new java.util.HashMap<>();
+            result.put("checkoutUrl", response.getCheckoutUrl());
+            if (response.getQrCode() != null) {
+                result.put("qrCode", response.getQrCode());
+            }
+            return result;
+
+        } catch (Exception e) {
+            log.error("Lỗi khi tạo payment link deposit với PayOS: ", e);
+            throw new com.fnb.common.exception.BusinessException("Không thể tạo phiên đặt cọc PayOS: " + e.getMessage());
         }
     }
 
@@ -106,8 +164,58 @@ public class PayOSPaymentService {
             log.info("✅ Xác thực Webhook PayOS thành công: Mã: {}, Tiền: {}", payosOrderCode, data.getAmount());
 
             // 1. Tìm Order trong Database theo payos_order_code
-            Order order = orderRepository.findByPayosOrderCode(payosOrderCode)
-                .orElseThrow(() -> new Exception("Không tìm thấy đơn hàng tương ứng với mã " + payosOrderCode));
+            Optional<Order> orderOpt = orderRepository.findByPayosOrderCode(payosOrderCode);
+            
+            if (orderOpt.isPresent()) {
+                handleOrderWebhook(data, orderOpt.get());
+            } else {
+                // Thử tìm trong ReservationRepository
+                Optional<com.fnb.order.entity.Reservation> resOpt = reservationRepository.findByPayosOrderCode(payosOrderCode);
+                if (resOpt.isPresent()) {
+                    handleReservationWebhook(data, resOpt.get());
+                } else {
+                    log.warn("Không tìm thấy Order hay Reservation nào khớp với mã {}", payosOrderCode);
+                }
+            }
+
+        } catch(Exception e) {
+             log.error("❌ PayOS Webhook Error: ", e);
+             throw new com.fnb.common.exception.BusinessException("Xử lý Webhook thất bại: " + e.getMessage());
+        }
+    }
+
+    private void handleReservationWebhook(WebhookData data, com.fnb.order.entity.Reservation reservation) {
+        try {
+            var payosData = payOS.paymentRequests().get(data.getOrderCode());
+            long requestedAmount = payosData.getAmount();
+            
+            BigDecimal currentDeposit = reservation.getDepositAmount() != null ? reservation.getDepositAmount() : BigDecimal.ZERO;
+            BigDecimal addedDeposit = BigDecimal.valueOf(data.getAmount());
+            reservation.setDepositAmount(currentDeposit.add(addedDeposit));
+            
+            if (data.getAmount() >= requestedAmount) {
+                log.info("🤑 Khách đã chuyển đủ cọc {} cho Reservation {}. Tiến hành auto-confirm.", data.getAmount(), reservation.getId());
+                reservation.setStatus("CONFIRMED");
+            } else {
+                log.warn("❌ Khách chuyển THIẾU cọc cho Reservation {}. Nhận được {}, yêu cầu {}.", reservation.getId(), data.getAmount(), requestedAmount);
+                // Giữ nguyên trạng thái PENDING và bắn thông báo
+                StaffCallCreatedEvent event = StaffCallCreatedEvent.builder()
+                        .callId(UUID.randomUUID())
+                        .sessionId(null) // Lễ tân sẽ nhận được thông báo chung
+                        .tableId(null)
+                        .tableNumber(null)
+                        .callType("INSUFFICIENT_RESERVATION_DEPOSIT")
+                        .calledAt(LocalDateTime.now())
+                        .build();
+                applicationEventPublisher.publishEvent(event);
+            }
+            reservationRepository.save(reservation);
+        } catch (Exception e) {
+            log.error("Lỗi khi xử lý reservation webhook data", e);
+        }
+    }
+
+    private void handleOrderWebhook(WebhookData data, Order order) {
             
             // 2. Xác định số tiền cần thiết từ PayOS (Nếu là MIXED thì chỉ cần đủ phần qr)
             double requiredAmount = order.getTotal().doubleValue();
@@ -151,11 +259,6 @@ public class PayOSPaymentService {
                         .build();
                 applicationEventPublisher.publishEvent(event);
             }
-
-        } catch(Exception e) {
-             log.error("❌ PayOS Webhook Error: ", e);
-             throw new RuntimeException("Xử lý Webhook thất bại", e);
-        }
     }
 
     /**

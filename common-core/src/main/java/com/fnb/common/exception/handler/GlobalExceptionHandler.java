@@ -57,12 +57,21 @@ public class GlobalExceptionHandler {
     }
 
     // Xử lý lỗi sai phương thức HTTP (vd gọi POST vào API GET)
-    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(org.springframework.web.HttpRequestMethodNotSupportedException ex) {
         log.warn("Method not supported: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body(ApiResponse.error("Phương thức HTTP không được hỗ trợ cho API này."));
+    }
+
+    // Xử lý lỗi ràng buộc dữ liệu (vd xóa danh mục đang có nguyên liệu)
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(org.springframework.dao.DataIntegrityViolationException ex) {
+        log.error("Data integrity violation: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error("Không thể thực hiện thao tác do dữ liệu đang được sử dụng ở nơi khác (Ràng buộc dữ liệu)."));
     }
 
     // Fallback cho mọi exception không rõ

@@ -27,7 +27,7 @@ public class TableInfo {
     private String qrToken;
     @Column(length = 20)
     @Builder.Default
-    private String status = "FREE"; // FREE, OCCUPIED, PAYMENT_REQUESTED, CLEANING
+    private String status = "FREE"; // FREE, OCCUPIED, PAYMENT_REQUESTED, CLEANING, RESERVED
 
     @Builder.Default
     private Integer capacity = 4;

@@ -13,8 +13,10 @@ public class CreateStaffRequest {
     private String password;
 
     @NotBlank
-    @Pattern(regexp = "CASHIER|KITCHEN", message = "Role phải là CASHIER hoặc KITCHEN")
+    @Pattern(regexp = "CASHIER|KITCHEN|SERVER", message = "Role phải là CASHIER, KITCHEN hoặc SERVER")
     private String role;
 
     private String fullName;
+
+    private String phone;
 }

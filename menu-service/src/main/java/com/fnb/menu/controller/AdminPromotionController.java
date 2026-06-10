@@ -32,6 +32,11 @@ public class AdminPromotionController {
         return ResponseEntity.ok(ApiResponse.ok(promotionService.listForAdmin(keyword, page, size)));
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<PromotionResponse>> getById(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok(promotionService.getById(id)));
+    }
+
     @PostMapping
     public ResponseEntity<ApiResponse<PromotionResponse>> create(
             @Valid @RequestBody PromotionRequest request) {

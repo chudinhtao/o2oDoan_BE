@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -117,7 +118,8 @@ public class ServerDeliveryController {
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader(value = "X-User-Name", required = false) String userName,
             @PathVariable UUID id) {
-        serverDeliveryService.acceptCall(id, UUID.fromString(userId), userName);
+        String decodedName = userName != null ? java.net.URLDecoder.decode(userName, java.nio.charset.StandardCharsets.UTF_8) : null;
+        serverDeliveryService.acceptCall(id, UUID.fromString(userId), decodedName);
         return ApiResponse.ok("Đã tiếp nhận yêu cầu.", null);
     }
 
@@ -141,8 +143,9 @@ public class ServerDeliveryController {
      */
     @GetMapping("/kpi/today")
     public ApiResponse<ServerKpiResponse> getKpiToday(
-            @RequestHeader("X-User-Id") String userId) {
-        return ApiResponse.ok(serverDeliveryService.getKpiToday(UUID.fromString(userId)));
+            @RequestHeader("X-User-Id") String userId,
+            @RequestParam(required = false) LocalDateTime startFrom) {
+        return ApiResponse.ok(serverDeliveryService.getKpiToday(UUID.fromString(userId), startFrom));
     }
 
     // ===== Helper =====

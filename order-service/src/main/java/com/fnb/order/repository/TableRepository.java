@@ -14,8 +14,6 @@ import java.util.UUID;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
 import com.fnb.order.dto.response.PosTableResponse;
-import com.fnb.order.entity.Order;
-import com.fnb.order.entity.TableSession;
 import org.springframework.data.jpa.repository.Modifying;
 
 public interface TableRepository extends JpaRepository<TableInfo, UUID> {
@@ -53,14 +51,15 @@ public interface TableRepository extends JpaRepository<TableInfo, UUID> {
             COALESCE(SUM(o.total), 0.0),
             s.openedAt,
             t.parentTableId,
-            pt.number
+            pt.number,
+            t.zone
         )
         FROM TableInfo t
         LEFT JOIN TableInfo pt ON t.parentTableId = pt.id
         LEFT JOIN TableSession s ON s.table = t AND s.status = 'ACTIVE'
         LEFT JOIN Order o ON o.session = s AND o.status IN ('OPEN', 'PAYMENT_REQUESTED')
         WHERE t.isActive = true
-        GROUP BY t.id, t.number, t.name, t.status, t.capacity, s.id, s.sessionToken, s.openedAt, t.parentTableId, pt.number
+        GROUP BY t.id, t.number, t.name, t.status, t.capacity, s.id, s.sessionToken, s.openedAt, t.parentTableId, pt.number, t.zone
         ORDER BY t.number ASC
     """)
     List<PosTableResponse> findAllForPos();

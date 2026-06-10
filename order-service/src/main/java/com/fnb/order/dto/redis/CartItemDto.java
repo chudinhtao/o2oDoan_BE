@@ -22,6 +22,9 @@ public class CartItemDto {
     @JsonAlias("unitPrice")
     private BigDecimal unitPrice;
     
+    @JsonProperty("taxRate")
+    private BigDecimal taxRate;
+    
     @JsonProperty("discountPrice")
     private BigDecimal discountPrice;
 

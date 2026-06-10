@@ -27,10 +27,13 @@ public class AdminKnowledgeTools {
     private final JdbcTemplate jdbc;
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
 
-    @Tool("Tim kiem cac tieu chuan, benchmark cua nganh F&B tu Knowledge Base (Vi du: ty le huy don an toan, food cost tieu chuan, ma tran Menu Engineering). " +
-          "Dung khi can tham khao chuan muc nganh hoac ly thuyet van hanh nha hang de dua ra loi khuyen.")
-    public String searchKnowledgeBase(@P("Truy van tim kiem, nen dung tieng Viet") String query) {
+    @Tool("Tìm kiếm các tiêu chuẩn, benchmark của ngành F&B từ Knowledge Base (Ví dụ: tỷ lệ hủy đơn an toàn, food cost tiêu chuẩn, ma trận Menu Engineering). " +
+          "Dùng khi cần tham khảo chuẩn mực ngành hoặc lý thuyết vận hành nhà hàng để đưa ra lời khuyên.")
+    public String searchKnowledgeBase(@P("Truy cập tìm kiếm, nên dùng tiếng Việt") String query) {
         log.info("[KNOWLEDGE-TOOL] searchKnowledgeBase: {}", query);
+        if (query == null || query.trim().isEmpty()) {
+            return "Vui lòng cung cấp từ khóa để tìm kiếm trong Knowledge Base.";
+        }
         try {
             dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(query).content();
             String vectorString = Arrays.toString(embedding.vector());
@@ -45,11 +48,11 @@ public class AdminKnowledgeTools {
             
             List<Map<String, Object>> rows = jdbc.queryForList(sql, vectorString);
             if (rows.isEmpty()) {
-                return "Khong tim thay thong tin trong Knowledge Base.";
+                return "Không tìm thấy thông tin trong Knowledge Base.";
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("📚 THONG TIN TU KNOWLEDGE BASE:\n");
+            sb.append("📚 THÔNG TIN TỪ KNOWLEDGE BASE:\n");
             for (Map<String, Object> row : rows) {
                 sb.append("• [").append(row.get("title")).append("] ")
                   .append(row.get("content")).append("\n\n");
@@ -57,32 +60,32 @@ public class AdminKnowledgeTools {
             return sb.toString();
         } catch (Exception e) {
             log.error("[KNOWLEDGE-TOOL] searchKnowledgeBase error: {}", e.getMessage());
-            return "Loi khi truy cap Knowledge Base. " + e.getMessage();
+            return "Lỗi khi truy cập Knowledge Base. " + e.getMessage();
         }
     }
 
-    @Tool("Lay thong tin thoi tiet va su kien dia phuong hom nay tai khu vuc cua nha hang. " +
-          "Dung de danh gia nguyen nhan khach vang, luong don takeaway tang/giam hoac du doan doanh thu.")
+    @Tool("Lấy thông tin thời tiết và sự kiện địa phương hôm nay tại khu vực của nhà hàng. " +
+          "Dùng để đánh giá nguyên nhân khách vắng, lượng đơn takeaway tăng/giảm hoặc dự đoán doanh thu.")
     public String getWeatherAndEvents() {
         log.info("[KNOWLEDGE-TOOL] getWeatherAndEvents");
         return """
-            🌤️ THOI TIET & SU KIEN HOM NAY (Khu vuc TP.HCM):
-            - Thoi tiet: Mua to vao buoi chieu toi (16:00 - 19:00). Nhiet do 26-30 do C.
-            - Su kien: Co tran chung ket bong da luc 19:30 toi nay.
+            🌤️ THỜI TIẾT & SỰ KIỆN HÔM NAY (Khu vực TP.HCM):
+            - Thời tiết: Mưa to vào buổi chiều tối (16:00 - 19:00). Nhiệt độ 26-30 độ C.
+            - Sự kiện: Có trận chung kết bóng đá lúc 19:30 tối nay.
             
-            💡 Insights: Mua to co the lam giam luong khach an tai quan (Dine-in) nhung se lam tang dot bien luong don giao di (Takeaway/Delivery). Tran bong da vao buoi toi khuyen khich cac combo nhom hoac bia/do nham.
+            💡 Insights: Mưa to có thể làm giảm lượng khách ăn tại quán (Dine-in) nhưng sẽ làm tăng đột biến lượng đơn giao đi (Takeaway/Delivery). Trận bóng đá vào buổi tối khuyến khích các combo nhóm hoặc bia/đồ nhắm.
             """;
     }
 
-    @Tool("Tim kiem xu huong nganh F&B tren mang (Web Search) de biet trend hien tai, mon an dang hot hoac thay doi trong thi truong. " +
-          "Dung khi can de xuat mon moi, chuong trinh khuyen mai theo trend hoac danh gia xem nha hang co bi tut hau khong.")
+    @Tool("Tìm kiếm xu hướng ngành F&B trên mạng (Web Search) để biết trend hiện tại, món ăn đang hot hoặc thay đổi trong thị trường. " +
+          "Dùng khi cần đề xuất món mới, chương trình khuyến mãi theo trend hoặc đánh giá xem nhà hàng có bị tụt hậu không.")
     public String getMarketTrends() {
         log.info("[KNOWLEDGE-TOOL] getMarketTrends");
         return """
-            📈 XU HUONG THI TRUONG F&B (Web Search Mock):
-            1. "Healty & Diet": Nhu cau cac mon an Eat Clean, thuc uong it duong (Keto, low-carb) dang tang 25% so voi cung ky nam ngoai.
-            2. "Combo tiet kiem": Do kinh te kho khan, khach hang chuong cac set lunch hoac combo giam gia cho nhom tu 2-4 nguoi.
-            3. "Bao bi xanh": Ngay cang nhieu khach hang ung ho cac nha hang su dung hop giay, ong hut thien nhien thay vi nhua.
+            📈 XU HƯỚNG THỊ TRƯỜNG F&B (Web Search Mock):
+            1. "Healthy & Diet": Nhu cầu các món ăn Eat Clean, thức uống ít đường (Keto, low-carb) đang tăng 25% so với cùng kỳ năm ngoái.
+            2. "Combo tiết kiệm": Do kinh tế khó khăn, khách hàng chuộng các set lunch hoặc combo giảm giá cho nhóm từ 2-4 người.
+            3. "Bao bì xanh": Ngày càng nhiều khách hàng ủng hộ các nhà hàng sử dụng hộp giấy, ống hút thiên nhiên thay vì nhựa.
             """;
     }
 }

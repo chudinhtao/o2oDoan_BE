@@ -24,11 +24,11 @@ public interface ReportFeignClient {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to);
 
     @GetMapping("/api/reports/top-items")
-    ApiResponse<List<TopItemRow>> getTopItems(
-            @RequestParam(defaultValue = "10") int limit,
+    ApiResponse<com.fnb.common.dto.PageResponse<TopItemRow>> getTopItems(
+            @RequestParam("size") int size,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(defaultValue = "QUANTITY") String sortBy);
+            @RequestParam("sortBy") String sortBy);
 
     @GetMapping("/api/reports/by-source")
     ApiResponse<List<SourceRow>> getRevenueBySource(
@@ -50,26 +50,30 @@ public interface ReportFeignClient {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate shiftDate);
 
     @GetMapping("/api/reports/promotion-effectiveness")
-    ApiResponse<List<PromotionEffRow>> getPromotionEffectiveness(
+    ApiResponse<com.fnb.common.dto.PageResponse<PromotionEffRow>> getPromotionEffectiveness(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to);
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam("size") int size);
 
     @GetMapping("/api/reports/staff-calls")
-    ApiResponse<List<StaffCallRow>> getStaffCallStats(
+    ApiResponse<com.fnb.common.dto.PageResponse<StaffCallRow>> getStaffCallStats(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to);
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam("size") int size);
 
     // 1.4: Hiệu suất bếp
     @GetMapping("/api/reports/kitchen-performance")
-    ApiResponse<List<KitchenPerfRow>> getKitchenPerformance(
+    ApiResponse<com.fnb.common.dto.PageResponse<KitchenPerfRow>> getKitchenPerformance(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to);
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam("size") int size);
 
     // 1.4: Chi tiết đơn hủy
     @GetMapping("/api/reports/cancelled-drilldown")
-    ApiResponse<List<CancelledRow>> getCancelledOrderDrilldown(
+    ApiResponse<com.fnb.common.dto.PageResponse<CancelledRow>> getCancelledOrderDrilldown(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to);
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam("size") int size);
 
     // ─── Response Records ─────────────────────────────────────────────────────
 

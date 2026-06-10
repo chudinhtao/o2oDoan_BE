@@ -17,6 +17,7 @@ public class CategoryResponse {
     private String name;
     private String imageUrl;
     private int displayOrder;
+    private java.math.BigDecimal taxRate;
     
     @JsonProperty("isActive")
     private boolean isActive;

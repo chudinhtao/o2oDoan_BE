@@ -38,6 +38,12 @@ public class Order {
     @Builder.Default
     private String orderType = "DINE_IN"; // DINE_IN, TAKEAWAY, DELIVERY
 
+    @Column(name = "customer_name", length = 100)
+    private String customerName;
+
+    @Column(name = "customer_phone", length = 20)
+    private String customerPhone;
+
     @Column(length = 30)
     @Builder.Default
     private String status = "OPEN"; 
@@ -48,6 +54,9 @@ public class Order {
 
     @Builder.Default
     private BigDecimal subtotal = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal depositAmount = BigDecimal.ZERO;
 
     @Builder.Default
     private BigDecimal discount = BigDecimal.ZERO;

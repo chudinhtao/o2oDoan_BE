@@ -108,6 +108,41 @@ services:
       KAFKA_BROKERCONNECT: kafka:29092
       JVM_OPTS: "-Xms32M -Xmx64M"
 
+  # ============================================================
+  # Inventory Service (port 8086)
+  # ============================================================
+  inventory-service:
+    build:
+      context: .
+      dockerfile: inventory-service/Dockerfile
+    container_name: fnb-inventory-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8086:8086"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-fnb_db}
+      DB_USER: ${DB_USER:-fnb_user}
+      DB_PASS: ${DB_PASS:-fnb_pass}
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 29092
+      EUREKA_HOST: discovery-server
+      EUREKA_PORT: 8761
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
 volumes:
   postgres_data:
     name: fnb-self-ordering_postgres_data

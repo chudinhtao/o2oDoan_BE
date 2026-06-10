@@ -38,6 +38,9 @@ public class RestaurantProfileService {
         if (req.bannerUrl() != null) profile.setBannerUrl(req.bannerUrl());
         if (req.address()   != null) profile.setAddress(req.address());
         if (req.phone()     != null) profile.setPhone(req.phone());
+        if (req.openTime()  != null) profile.setOpenTime(req.openTime());
+        if (req.closeTime() != null) profile.setCloseTime(req.closeTime());
+        if (req.localCultureNotes() != null) profile.setLocalCultureNotes(req.localCultureNotes());
 
         return toResponse(repository.save(profile));
     }
@@ -45,7 +48,8 @@ public class RestaurantProfileService {
     private ProfileResponse toResponse(RestaurantProfile p) {
         return new ProfileResponse(
                 p.getId(), p.getName(), p.getSlogan(),
-                p.getLogoUrl(), p.getBannerUrl(), p.getAddress(), p.getPhone()
+                p.getLogoUrl(), p.getBannerUrl(), p.getAddress(), p.getPhone(),
+                p.getOpenTime(), p.getCloseTime(), p.getLocalCultureNotes()
         );
     }
 }

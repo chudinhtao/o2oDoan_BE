@@ -32,7 +32,7 @@ public class TableService {
     private final TableRepository tableRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
 
-    @Value("${app.qr-base-url:http://localhost:5173/?qr=}")
+    @Value("${app.qr-base-url:http://localhost:5173/table?qr=}")
     private String qrBaseUrl;
 
     public PageResponse<TableResponse> getAllTables(String keyword, String status, Boolean isActive, int page,

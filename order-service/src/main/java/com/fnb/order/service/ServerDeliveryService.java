@@ -262,6 +262,12 @@ public class ServerDeliveryService {
         call.setStatus("RESOLVED");
         call.setResolvedAt(LocalDateTime.now());
         call.setResolvedBy(serverId);
+        
+        if (call.getAcceptedBy() == null) {
+            call.setAcceptedBy(serverId);
+            call.setAcceptedAt(call.getCreatedAt()); // Coi như tiếp nhận ngay lập tức lúc tạo
+        }
+        
         staffCallRepository.save(call);
 
         // Bắn sự kiện qua Kafka để các màn hình tự động làm mới ngay lập tức
@@ -289,10 +295,13 @@ public class ServerDeliveryService {
                                    List<CancelAlertEvent.CancelledItem> cancelledItems) {
         if (cancelledItems == null || cancelledItems.isEmpty()) return;
 
+        String msg = "KHẨN CẤP: Bàn " + tableNumber + " vừa hủy " + cancelledItems.size() + " món đã nấu xong! Vui lòng giữ lại tại quầy, KHÔNG bưng ra!";
+
         CancelAlertEvent event = CancelAlertEvent.builder()
                 .orderId(orderId)
                 .tableNumber(tableNumber)
                 .cancelledItems(cancelledItems)
+                .message(msg)
                 .cancelledAt(LocalDateTime.now())
                 .build();
 
@@ -320,17 +329,19 @@ public class ServerDeliveryService {
      * - Thời gian xử lý trung bình (giây)
      */
     @Transactional(readOnly = true)
-    public ServerKpiResponse getKpiToday(UUID serverId) {
-        LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
+    public ServerKpiResponse getKpiToday(UUID serverId, LocalDateTime startFrom) {
+        LocalDateTime startOfDay = startFrom != null ? startFrom : LocalDate.now().atStartOfDay();
 
         long totalServed = ticketItemRepository.countServedToday(serverId, startOfDay);
         long totalResolved = staffCallRepository.countResolvedToday(serverId, startOfDay);
         double avgSeconds = staffCallRepository.avgResolutionTimeSeconds(serverId, startOfDay);
+        double avgDeliverySeconds = ticketItemRepository.avgDeliveryTimeSeconds(serverId, startOfDay);
 
         return ServerKpiResponse.builder()
                 .totalServed(totalServed)
                 .totalResolved(totalResolved)
                 .avgResponseSeconds((long) avgSeconds)
+                .avgDeliverySeconds((long) avgDeliverySeconds)
                 .build();
     }
 

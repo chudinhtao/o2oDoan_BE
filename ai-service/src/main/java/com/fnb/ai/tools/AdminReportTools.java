@@ -32,8 +32,9 @@ public class AdminReportTools {
     public String getExecutiveSummary(@P("Ngày bắt đầu") String from, @P("Ngày kết thúc") String to) {
         log.info("[ADMIN-TOOL] getExecutiveSummary from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
             
             // Tính toán kỳ trước (Previous Period)
             long daysBetween = ChronoUnit.DAYS.between(fromDate, toDate) + 1;
@@ -42,19 +43,21 @@ public class AdminReportTools {
 
             // Lấy dữ liệu kỳ này
             var currRev = reportFeignClient.getRevenueReport(fromDate, toDate).getData();
-            var currCall = reportFeignClient.getStaffCallStats(fromDate, toDate).getData();
+            var currCallRes = reportFeignClient.getStaffCallStats(fromDate, toDate, 1000);
+            var currCall = currCallRes != null ? currCallRes.getData() : null;
             
             // Lấy dữ liệu kỳ trước
             var prevRev = reportFeignClient.getRevenueReport(prevFromDate, prevToDate).getData();
-            var prevCall = reportFeignClient.getStaffCallStats(prevFromDate, prevToDate).getData();
+            var prevCallRes = reportFeignClient.getStaffCallStats(prevFromDate, prevToDate, 1000);
+            var prevCall = prevCallRes != null ? prevCallRes.getData() : null;
 
             // Tính toán chỉ số kỳ này
-            BigDecimal currTotalRev = currRev != null ? currRev.stream().map(ReportFeignClient.RevenueRow::revenue).reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
+            BigDecimal currTotalRev = currRev != null ? currRev.stream().map(r -> safe(r.revenue())).reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
             long currTotalOrders = currRev != null ? currRev.stream().mapToLong(ReportFeignClient.RevenueRow::totalOrders).sum() : 0;
-            long currTotalCalls = currCall != null ? currCall.stream().mapToLong(ReportFeignClient.StaffCallRow::callCount).sum() : 0;
+            long currTotalCalls = (currCall != null && currCall.getContent() != null) ? currCall.getContent().stream().mapToLong(ReportFeignClient.StaffCallRow::callCount).sum() : 0;
 
             // Tính toán chỉ số kỳ trước
-            BigDecimal prevTotalRev = prevRev != null ? prevRev.stream().map(ReportFeignClient.RevenueRow::revenue).reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
+            BigDecimal prevTotalRev = prevRev != null ? prevRev.stream().map(r -> safe(r.revenue())).reduce(BigDecimal.ZERO, BigDecimal::add) : BigDecimal.ZERO;
             long prevTotalOrders = prevRev != null ? prevRev.stream().mapToLong(ReportFeignClient.RevenueRow::totalOrders).sum() : 0;
 
             // Tính % tăng trưởng
@@ -112,8 +115,9 @@ public class AdminReportTools {
                                     @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getRevenueSummary from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
             var res = reportFeignClient.getRevenueReport(fromDate, toDate);
             if (res == null || res.getData() == null || res.getData().isEmpty()) {
                 return "Không có dữ liệu doanh thu trong khoảng " + from + " đến " + to + ".";
@@ -152,11 +156,12 @@ public class AdminReportTools {
                               @P("Sắp xếp theo QUANTITY hoặc REVENUE") String sortBy) {
         log.info("[ADMIN-TOOL] getTopItems from={} to={} limit={} sortBy={}", from, to, limit, sortBy);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
             String sort = (sortBy != null && sortBy.equalsIgnoreCase("REVENUE")) ? "REVENUE" : "QUANTITY";
             var res = reportFeignClient.getTopItems(limit, fromDate, toDate, sort);
-            if (res == null || res.getData() == null || res.getData().isEmpty()) {
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
                 return "Không có dữ liệu món bán chạy trong khoảng " + from + " đến " + to + ".";
             }
 
@@ -164,7 +169,7 @@ public class AdminReportTools {
             sb.append("🏆 Top ").append(limit).append(" món ").append("REVENUE".equals(sort) ? "(theo doanh thu)" : "(theo số lượng)")
               .append(" từ ").append(from).append(" đến ").append(to).append(":\n\n");
             int rank = 1;
-            for (var item : res.getData()) {
+            for (var item : res.getData().getContent()) {
                 sb.append(rank++).append(". ").append(item.itemName())
                   .append(" — ").append(item.totalSold()).append(" phần")
                   .append(", ").append(formatVnd(item.revenue())).append("\n");
@@ -184,8 +189,9 @@ public class AdminReportTools {
                                      @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getRevenueBySource from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
             var res = reportFeignClient.getRevenueBySource(fromDate, toDate);
             if (res == null || res.getData() == null || res.getData().isEmpty()) {
                 return "Không có dữ liệu theo nguồn trong khoảng " + from + " đến " + to + ".";
@@ -214,8 +220,9 @@ public class AdminReportTools {
                                    @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getHourlyTraffic from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
             var res = reportFeignClient.getHourlyTraffic(fromDate, toDate);
             if (res == null || res.getData() == null || res.getData().isEmpty()) {
                 return "Không có dữ liệu theo giờ trong khoảng " + from + " đến " + to + ".";
@@ -251,8 +258,9 @@ public class AdminReportTools {
                                       @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getTableUsageReport from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
             var res = reportFeignClient.getTableUsage(fromDate, toDate);
             if (res == null || res.getData() == null || res.getData().isEmpty()) {
                 return "Không có dữ liệu sử dụng bàn trong khoảng " + from + " đến " + to + ".";
@@ -279,64 +287,183 @@ public class AdminReportTools {
 
     @Tool("Lấy báo cáo chốt ca chi tiết. Trả về: doanh thu, số đơn, đơn huỷ, doanh thu theo phương thức thanh toán. " +
           "Tham số shiftDate định dạng yyyy-MM-dd.")
-    public ReportFeignClient.ShiftReportRow getCashierShiftReport(@P("Ngày cần xem báo cáo (yyyy-MM-dd)") String shiftDate) {
+    public String getCashierShiftReport(@P("Ngày cần xem báo cáo (yyyy-MM-dd)") String shiftDate) {
         log.info("[ADMIN-TOOL] getCashierShiftReport shiftDate={}", shiftDate);
         try {
-            LocalDate date = LocalDate.parse(shiftDate);
+            LocalDate date = parseDate(shiftDate);
+            if (date == null) return dateErrorMsg(shiftDate, shiftDate);
             var res = reportFeignClient.getCashierShiftReport(date);
-            return (res != null) ? res.getData() : null;
+            if (res == null || res.getData() == null) {
+                return "Không có dữ liệu chốt ca ngày " + shiftDate + ". Có thể chưa có ca làm hoặc chưa có đơn hàng.";
+            }
+            var data = res.getData();
+            StringBuilder sb = new StringBuilder();
+            sb.append("🧾 BÁO CÁO CHỐT CA NGÀY ").append(shiftDate).append(":\n\n");
+            sb.append("💰 Tổng doanh thu: ").append(formatVnd(safe(data.totalRevenue()))).append("\n");
+            sb.append("📦 Tổng đơn hàng: ").append(data.totalOrders()).append(" đơn\n");
+            sb.append("🚫 Đơn hủy: ").append(data.cancelledOrders()).append(" đơn")
+              .append(" (").append(formatVnd(safe(data.cancelledRevenue()))).append(")\n");
+            if (data.revenueByPaymentMethod() != null && !data.revenueByPaymentMethod().isEmpty()) {
+                sb.append("\n💳 Doanh thu theo phương thức thanh toán:\n");
+                data.revenueByPaymentMethod().forEach((method, amount) ->
+                    sb.append("  • ").append(method).append(": ").append(formatVnd(safe(amount))).append("\n")
+                );
+            }
+            if (data.ordersByPaymentMethod() != null && !data.ordersByPaymentMethod().isEmpty()) {
+                sb.append("\n📊 Số đơn theo phương thức thanh toán:\n");
+                data.ordersByPaymentMethod().forEach((method, count) ->
+                    sb.append("  • ").append(method).append(": ").append(count).append(" đơn\n")
+                );
+            }
+            return sb.toString();
         } catch (Exception e) {
             log.error("[ADMIN-TOOL] getCashierShiftReport error: {}", e.getMessage());
-            return null;
+            return "Lỗi khi lấy báo cáo chốt ca. Vui lòng thử lại sau.";
         }
     }
 
-    @Tool("Lấy báo cáo hiệu quả của các chương trình khuyến mãi. Trả về: mã KM, số đơn dùng, tổng tiền giảm, doanh thu tạo ra. " +
-          "Tham số from/to định dạng yyyy-MM-dd.")
-    public List<ReportFeignClient.PromotionEffRow> getPromotionEffectiveness(@P("Ngày bắt đầu (yyyy-MM-dd)") String from, 
-                                                                             @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
+    @Tool("Lấy báo cáo hiệu quả của các chương trình khuyến mãi (Promotion ROI). Trả về: mã KM, số đơn dùng, tổng tiền giảm, doanh thu tạo ra, chỉ số ROI. " +
+          "Dùng khi admin hỏi: 'khuyến mãi nào hiệu quả', 'mã giảm giá có lỗ không'. Tham số from/to định dạng yyyy-MM-dd.")
+    public String getPromotionEffectiveness(@P("Ngày bắt đầu (yyyy-MM-dd)") String from, 
+                                            @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getPromotionEffectiveness from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
-            var res = reportFeignClient.getPromotionEffectiveness(fromDate, toDate);
-            return (res != null) ? res.getData() : null;
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
+            var res = reportFeignClient.getPromotionEffectiveness(fromDate, toDate, 100);
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
+                return "Không có dữ liệu khuyến mãi nào được sử dụng trong khoảng " + from + " đến " + to + ".";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("🏷️ HIỆU QUẢ KHUYẾN MÃI (ROI) từ ").append(from).append(" đến ").append(to).append(":\n\n");
+            
+            for (var row : res.getData().getContent()) {
+                BigDecimal discount = row.totalDiscountGiven() != null ? row.totalDiscountGiven() : BigDecimal.ZERO;
+                BigDecimal revenue = row.grossRevenue() != null ? row.grossRevenue() : BigDecimal.ZERO;
+                
+                double roi = discount.compareTo(BigDecimal.ZERO) > 0 
+                             ? revenue.divide(discount, 2, RoundingMode.HALF_UP).doubleValue() 
+                             : 0;
+
+                sb.append("• Mã KM: **").append(row.promotionCode()).append("**\n")
+                  .append("  - Lượt dùng: ").append(row.orderCount()).append(" đơn\n")
+                  .append("  - Chi phí giảm giá: ").append(formatVnd(discount)).append("\n")
+                  .append("  - Doanh thu mang lại: ").append(formatVnd(revenue)).append("\n")
+                  .append("  - ROI (Doanh thu / Chi phí): **").append(roi).append("x**\n");
+                  
+                if (roi > 0 && roi < 3) {
+                    sb.append("  => ⚠️ ROI thấp (<3x), cần xem lại tỷ lệ giảm giá có đang phá biên lợi nhuận không.\n");
+                } else if (roi >= 5) {
+                    sb.append("  => 🌟 ROI xuất sắc (>=5x), nên đẩy mạnh chương trình này.\n");
+                }
+                sb.append("\n");
+            }
+            return sb.toString();
         } catch (Exception e) {
             log.error("[ADMIN-TOOL] getPromotionEffectiveness error: {}", e.getMessage());
-            return null;
+            return "Lỗi khi lấy dữ liệu khuyến mãi. Vui lòng thử lại sau.";
         }
     }
 
     @Tool("Lấy danh sách chi tiết lượt gọi nhân viên theo từng bàn. Trả về: số bàn, loại yêu cầu, số lần gọi, thời gian xử lý TB. " +
           "Tham số from/to định dạng yyyy-MM-dd.")
-    public List<ReportFeignClient.StaffCallRow> getStaffCallStats(@P("Ngày bắt đầu (yyyy-MM-dd)") String from, 
-                                                                  @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
+    public String getStaffCallStats(@P("Ngày bắt đầu (yyyy-MM-dd)") String from, 
+                                    @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getStaffCallStats from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
-            var res = reportFeignClient.getStaffCallStats(fromDate, toDate);
-            return (res != null) ? res.getData() : null;
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
+            var res = reportFeignClient.getStaffCallStats(fromDate, toDate, 1000);
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
+                return "Không có dữ liệu gọi nhân viên trong khoảng " + from + " đến " + to + ".";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("📣 THỐNG KÊ GỌI NHÂN VIÊN từ ").append(from).append(" đến ").append(to).append(":\n\n");
+            long totalCalls = 0;
+            for (var row : res.getData().getContent()) {
+                totalCalls += row.callCount();
+                sb.append("• Bàn ").append(row.tableNumber() != null ? row.tableNumber() : "?");
+                sb.append(" [").append(row.callType() != null ? row.callType() : "UNKNOWN").append("]")
+                  .append(": ").append(row.callCount()).append(" lượt");
+                if (row.avgResolveMinutes() != null) {
+                    sb.append(", xử lý TB ").append(row.avgResolveMinutes()).append(" phút");
+                }
+                sb.append("\n");
+            }
+            sb.append("\n📌 Tổng: ").append(totalCalls).append(" lượt gọi");
+            return sb.toString();
         } catch (Exception e) {
             log.error("[ADMIN-TOOL] getStaffCallStats error: {}", e.getMessage());
-            return null;
+            return "Lỗi khi lấy dữ liệu gọi nhân viên. Vui lòng thử lại sau.";
         }
     }
 
-    @Tool("Phân tích hiệu suất Menu (Menu Engineering) dựa trên doanh thu và số lượng bán. " +
-          "Dùng để xác định món nào hiệu quả cao (Star) hoặc cần loại bỏ (Dog). " +
-          "Tham số from/to định dạng yyyy-MM-dd.")
-    public List<ReportFeignClient.TopItemRow> getMenuPerformanceAnalysis(@P("Ngày bắt đầu") String from, 
-                                                                         @P("Ngày kết thúc") String to) {
+    @Tool("Phân tích hiệu suất Menu (Menu Engineering - Ma trận BCG) dựa trên doanh thu và số lượng bán. " +
+          "Phân thành 4 nhóm: Ngôi sao (Star), Bò sữa (Cash Cow), Dấu hỏi (Question Mark), Chó mực (Dog). " +
+          "Dùng khi admin hỏi: 'món nào nên bỏ', 'món nào chủ lực', 'đánh giá menu'. Tham số from/to định dạng yyyy-MM-dd.")
+    public String getMenuPerformanceAnalysis(@P("Ngày bắt đầu") String from, 
+                                             @P("Ngày kết thúc") String to) {
         log.info("[ADMIN-TOOL] getMenuPerformanceAnalysis from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
-            var res = reportFeignClient.getTopItems(50, fromDate, toDate, "QUANTITY");
-            return (res != null) ? res.getData() : null;
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
+            var res = reportFeignClient.getTopItems(100, fromDate, toDate, "QUANTITY");
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
+                return "Không có dữ liệu bán hàng để phân tích BCG.";
+            }
+
+            List<ReportFeignClient.TopItemRow> items = res.getData().getContent();
+            long totalSoldAll = items.stream().mapToLong(ReportFeignClient.TopItemRow::totalSold).sum();
+            BigDecimal totalRevAll = items.stream().map(ReportFeignClient.TopItemRow::revenue).reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            double avgSold = (double) totalSoldAll / items.size();
+            double avgRev = totalRevAll.doubleValue() / items.size();
+
+            StringBuilder star = new StringBuilder();
+            StringBuilder cow = new StringBuilder();
+            StringBuilder question = new StringBuilder();
+            StringBuilder dog = new StringBuilder();
+
+            int starCount=0, cowCount=0, qCount=0, dogCount=0;
+
+            for (var item : items) {
+                boolean highVol = item.totalSold() >= avgSold;
+                boolean highRev = item.revenue().doubleValue() >= avgRev;
+                String line = "  - " + item.itemName() + " (" + item.totalSold() + " phần, " + formatVnd(item.revenue()) + ")\n";
+
+                if (highVol && highRev) { star.append(line); starCount++; }
+                else if (highVol && !highRev) { cow.append(line); cowCount++; }
+                else if (!highVol && highRev) { question.append(line); qCount++; }
+                else { dog.append(line); dogCount++; }
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("📈 PHÂN TÍCH MENU (BCG MATRIX) từ ").append(from).append(" đến ").append(to).append(":\n\n");
+            
+            sb.append("⭐ **NGÔI SAO (Stars)** - Bán chạy & Doanh thu cao (").append(starCount).append(" món)\n")
+              .append("   (Nên duy trì chất lượng và ưu tiên hiển thị)\n")
+              .append(star.length() > 0 ? star.toString() : "  - Không có món nào\n").append("\n");
+
+            sb.append("🐄 **BÒ SỮA (Cash Cows)** - Bán chạy nhưng Doanh thu/Biên lợi nhuận thấp (").append(cowCount).append(" món)\n")
+              .append("   (Dùng để kéo khách, hoặc kết hợp bán chéo / combo để tăng AOV)\n")
+              .append(cow.length() > 0 ? cow.toString() : "  - Không có món nào\n").append("\n");
+
+            sb.append("❓ **DẤU HỎI (Question Marks)** - Bán ít nhưng Doanh thu cao (").append(qCount).append(" món)\n")
+              .append("   (Món đắt tiền, cần đẩy mạnh marketing để biến thành Ngôi sao)\n")
+              .append(question.length() > 0 ? question.toString() : "  - Không có món nào\n").append("\n");
+
+            sb.append("🐕 **CHÓ MỰC (Dogs)** - Bán ế & Doanh thu thấp (").append(dogCount).append(" món)\n")
+              .append("   (Nên xem xét loại bỏ khỏi Menu để tiết kiệm nguyên liệu)\n")
+              .append(dog.length() > 0 ? dog.toString() : "  - Không có món nào\n");
+
+            return sb.toString();
         } catch (Exception e) {
             log.error("[ADMIN-TOOL] getMenuPerformanceAnalysis error: {}", e.getMessage());
-            return null;
+            return "Lỗi khi phân tích Menu BCG. Vui lòng thử lại sau.";
         }
     }
 
@@ -347,10 +474,11 @@ public class AdminReportTools {
                                               @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getKitchenPerformanceReport from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
-            var res = reportFeignClient.getKitchenPerformance(fromDate, toDate);
-            if (res == null || res.getData() == null || res.getData().isEmpty()) {
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
+            var res = reportFeignClient.getKitchenPerformance(fromDate, toDate, 1000);
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
                 return "Không có dữ liệu hiệu suất bếp trong khoảng " + from + " đến " + to +
                        ". Có thể chưa có ticket hoàn thành hoặc hệ thống KDS chưa ghi nhận.";
             }
@@ -359,7 +487,7 @@ public class AdminReportTools {
             sb.append("🍳 HIỆU SUẤT BẾP từ ").append(from).append(" đến ").append(to).append(":\n\n");
 
             long totalLate = 0, totalTickets = 0;
-            for (var row : res.getData()) {
+            for (var row : res.getData().getContent()) {
                 totalTickets += row.totalTickets();
                 totalLate += row.lateTickets();
                 sb.append("• ").append(row.itemName()).append(": ");
@@ -394,10 +522,11 @@ public class AdminReportTools {
                                             @P("Ngày kết thúc (yyyy-MM-dd)") String to) {
         log.info("[ADMIN-TOOL] getCancelledOrderAnalysis from={} to={}", from, to);
         try {
-            LocalDate fromDate = LocalDate.parse(from);
-            LocalDate toDate = LocalDate.parse(to);
-            var res = reportFeignClient.getCancelledOrderDrilldown(fromDate, toDate);
-            if (res == null || res.getData() == null || res.getData().isEmpty()) {
+            LocalDate fromDate = parseDate(from);
+            LocalDate toDate = parseDate(to);
+            if (fromDate == null || toDate == null) return dateErrorMsg(from, to);
+            var res = reportFeignClient.getCancelledOrderDrilldown(fromDate, toDate, 1000);
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
                 return "Không có đơn hàng bị hủy trong khoảng " + from + " đến " + to + ". Vận hành tốt! ✅";
             }
 
@@ -406,9 +535,9 @@ public class AdminReportTools {
 
             BigDecimal totalLost = BigDecimal.ZERO;
             long totalCancelled = 0;
-            for (var row : res.getData()) {
+            for (var row : res.getData().getContent()) {
                 totalCancelled += row.cancelCount();
-                totalLost = totalLost.add(row.cancelledRevenue());
+                totalLost = totalLost.add(safe(row.cancelledRevenue()));
                 sb.append("• [").append(row.cancellationReason()).append("] ")
                   .append(row.cancelCount()).append(" đơn")
                   .append(" | Mất: ").append(formatVnd(row.cancelledRevenue()))
@@ -429,5 +558,22 @@ public class AdminReportTools {
     private String formatVnd(BigDecimal amount) {
         if (amount == null) return "0đ";
         return String.format("%,.0f", amount) + "đ";
+    }
+
+    private BigDecimal safe(BigDecimal val) {
+        return val != null ? val : BigDecimal.ZERO;
+    }
+
+    private LocalDate parseDate(String dateStr) {
+        if (dateStr == null || dateStr.isBlank()) return null;
+        try {
+            return LocalDate.parse(dateStr.trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String dateErrorMsg(String from, String to) {
+        return "Lỗi: Ngày '" + from + "' hoặc '" + to + "' không đúng định dạng. Vui lòng dùng yyyy-MM-dd (ví dụ: 2026-05-26).";
     }
 }

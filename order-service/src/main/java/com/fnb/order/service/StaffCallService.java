@@ -39,6 +39,7 @@ public class StaffCallService {
                                 .session(session)
                                 .table(session.getTable())
                                 .callType(request.getCallType())
+                                .message(request.getMessage())
                                 .status("PENDING")
                                 .build();
 
@@ -51,6 +52,7 @@ public class StaffCallService {
                                 .tableId(session.getTable() != null ? session.getTable().getId() : null)
                                 .tableNumber(session.getTable() != null ? session.getTable().getNumber() : null)
                                 .callType(call.getCallType())
+                                .message(call.getMessage())
                                 .calledAt(call.getCreatedAt() != null ? call.getCreatedAt() : LocalDateTime.now())
                                 .build();
                 applicationEventPublisher.publishEvent(event);
@@ -73,6 +75,13 @@ public class StaffCallService {
                 call.setStatus("RESOLVED");
                 call.setResolvedAt(LocalDateTime.now());
                 call.setResolvedBy(resolvedBy);
+
+                // Phase 2: Nếu trực tiếp nhấn Resolve (từ POS) mà chưa qua Accept, tự động điền để thống kê KPI không bị sót
+                if (call.getAcceptedBy() == null) {
+                        call.setAcceptedBy(resolvedBy);
+                        call.setAcceptedAt(call.getCreatedAt()); // Coi như tiếp nhận ngay lúc đó, hoặc có thể lấy time.now()
+                }
+
                 staffCallRepository.save(call);
                 log.info("Đã phục vụ xong yêu cầu {} cho bàn/mang về {} bởi nhân viên {}", 
                     call.getCallType(), call.getTable() != null ? call.getTable().getNumber() : "Mang về", resolvedBy);
@@ -90,6 +99,7 @@ public class StaffCallService {
                                 .tableId(call.getTable() != null ? call.getTable().getId() : null)
                                 .tableNumber(call.getTable() != null ? call.getTable().getNumber() : null)
                                 .callType(call.getCallType())
+                                .message(call.getMessage())
                                 .status(call.getStatus())
                                 .createdAt(call.getCreatedAt())
                                 .resolvedAt(call.getResolvedAt())

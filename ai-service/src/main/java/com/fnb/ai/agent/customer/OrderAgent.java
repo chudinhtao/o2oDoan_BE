@@ -13,7 +13,10 @@ import java.util.UUID;
  * Trợ lý theo dõi đơn hàng.
  * Có khả năng xem hóa đơn, theo dõi trạng thái bếp, gọi nhân viên.
  */
-@AiService(tools = "customerAiTools")
+@AiService(wiringMode = dev.langchain4j.service.spring.AiServiceWiringMode.EXPLICIT,
+           chatModel = "smartChatModel",
+           chatMemoryProvider = "chatMemoryProvider",
+           tools = "customerAiTools")
 public interface OrderAgent {
 
     @SystemMessage("""
@@ -29,6 +32,7 @@ public interface OrderAgent {
         3. Luôn dùng sessionToken của bàn khi gọi tool để lấy đúng dữ liệu.
         4. TUYỆT ĐỐI không bịa thông tin đơn hàng nếu tool không trả về dữ liệu.
         5. QUAN TRỌNG: Sau khi gọi Tool và nhận kết quả, BẮT BUỘC phải viết một câu trả lời bằng văn bản để giải thích cho khách. TUYỆT ĐỐI KHÔNG ĐƯỢC trả về nội dung rỗng.
+        6. BẮT BUỘC: NẾU kết quả từ Tool trả về có chứa chữ "SYSTEM_COMMAND:", bạn KHÔNG ĐƯỢC tự bịa thông tin. Bạn phải tuân thủ tuyệt đối nội dung của lệnh đó và thông báo lại cho khách.
         """)
     String chat(@MemoryId String sessionToken, @UserMessage String userMessage, @V("sessionToken") String sessionTokenVar);
 }

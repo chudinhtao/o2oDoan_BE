@@ -1,5 +1,7 @@
 package com.fnb.ai.agent.customer;
 
+import com.fnb.ai.config.RedisChatMemoryStore;
+import dev.langchain4j.data.message.ChatMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -10,12 +12,19 @@ import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Orchestrator điều phối luồng chat của Customer.
- * 1. Router phân loại ý định (MENU / ORDER)
- * 2. Chuyển đến đúng Agent xử lý
+ *
+ * Luồng xử lý:
+ * 1. Hybrid Routing (Regex) cho lệnh đơn giản (tính tiền, dọn bàn...)
+ * 2. LLM Router phân loại ý định (MENU / ORDER / GENERAL)
+ * 3. [MỚI] Query Rewriter: Viết lại câu hỏi thành câu độc lập
+ * 4. [MỚI] Global Semantic Cache: Tra cứu Vector không phụ thuộc session
+ * 5. Gọi Agent chuyên biệt (MenuAgent / OrderAgent / GeneralAgent)
+ * 6. Lưu kết quả vào Global Cache
  */
 @Slf4j
 @Service
@@ -26,16 +35,17 @@ public class CustomerOrchestrator {
     private final MenuAgent menuAgent;
     private final OrderAgent orderAgent;
     private final GeneralAgent generalAgent;
+    private final QueryRewriterAgent queryRewriterAgent;
     private final CustomerAiTools tools;
     private final JdbcTemplate jdbc;
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
+    private final RedisChatMemoryStore chatMemoryStore;
 
     public String processChat(String sessionToken, String userMessage) {
         String msgLower = userMessage.toLowerCase().trim();
         String msgUnaccented = removeAccents(msgLower);
 
-        // --- TỐI ƯU CHIẾN LƯỢC 3: HYBRID ROUTING (Bỏ qua LLM cho lệnh đơn giản) ---
-        // Sử dụng chuỗi không dấu (msgUnaccented) để bắt được cả "tính tiền" lẫn "tinh tien"
+        // --- CHIẾN LƯỢC 1: HYBRID ROUTING (Bỏ qua LLM cho lệnh đơn giản) ---
         if (msgUnaccented.matches(".*(tinh tien|thanh toan|goi bill|tong ket).*") && msgLower.length() < 50) {
             log.info("[HYBRID ROUTING] Bypassed LLM for BILL intent");
             return tools.callStaff("BILL", "Khách yêu cầu tính tiền/thanh toán");
@@ -53,8 +63,9 @@ public class CustomerOrchestrator {
             return tools.callStaff("SUPPORT", "Khách gọi nhân viên hỗ trợ chung");
         }
 
-        // --- GIAO CHO LLM NẾU CÂU HỎI PHỨC TẠP ---
-        String intent = routerAgent.routeIntent(userMessage).trim().toUpperCase();
+        // --- CHIẾN LƯỢC 2: LLM ROUTING ---
+        String routerMemoryId = "stateless-router-" + UUID.randomUUID().toString();
+        String intent = routerAgent.routeIntent(routerMemoryId, userMessage).trim().toUpperCase();
         log.debug("[ORCHESTRATOR] sessionToken={} | intent={} | msg={}", sessionToken, intent, userMessage);
 
         if (intent.contains("ORDER")) {
@@ -65,39 +76,82 @@ public class CustomerOrchestrator {
             return generalAgent.chat(sessionToken, userMessage, sessionToken);
         }
 
-        // --- TỐI ƯU CHIẾN LƯỢC 1: SEMANTIC CACHING CHO MENU ---
-        // Chỉ áp dụng cache cho các câu hỏi chung chung (dài hơn 15 ký tự)
-        if (userMessage.length() > 15) {
-            try {
-                // Mã hóa câu hỏi thành Vector
-                dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(userMessage).content();
-                String vectorString = Arrays.toString(embedding.vector());
-                
-                // Tìm trong Cache xem có câu nào giống >= 95% không VÀ chưa quá 15 phút
-                String cacheQuery = "SELECT answer FROM menu.ai_semantic_cache WHERE embedding <=> ?::vector < 0.05 AND created_at > NOW() - INTERVAL '15 minutes' LIMIT 1";
-                List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString);
-                
+        // --- CHIẾN LƯỢC 3: QUERY REWRITER + GLOBAL SEMANTIC CACHE (Chỉ cho MENU) ---
+        String vectorString = null;
+        String finalQueryForCache = userMessage;
+
+        try {
+            // 3.1: Kéo lịch sử chat và Viết lại câu hỏi thành câu Độc lập
+            String rewrittenQuery = rewriteQuery(sessionToken, userMessage);
+            log.info("[REWRITER] Gốc: '{}' -> Mới: '{}'", userMessage, rewrittenQuery);
+
+            // Nếu là lệnh hành động -> Bỏ qua Cache, giao thẳng cho Agent
+            if ("[ACTION_REQUIRED]".equals(rewrittenQuery)) {
+                log.info("[REWRITER] Phát hiện lệnh hành động, bỏ qua Cache");
+            } else {
+                finalQueryForCache = rewrittenQuery;
+
+                // 3.2: Embedding câu đã Rewrite và Tra cứu Global Cache
+                dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(finalQueryForCache).content();
+                vectorString = Arrays.toString(embedding.vector());
+
+                String cacheQuery = "SELECT answer FROM menu.ai_semantic_cache " +
+                                    "WHERE (embedding <=> ?::vector) < 0.02 " +
+                                    "AND created_at > NOW() - INTERVAL '1 hour' " +
+                                    "ORDER BY (embedding <=> ?::vector) ASC LIMIT 1";
+
+                List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString, vectorString);
+
                 if (!cached.isEmpty()) {
-                    log.info("[SEMANTIC CACHE] ⚡ Cache HIT cho câu hỏi: {}", userMessage);
+                    log.info("[SEMANTIC CACHE] ⚡ Global Cache HIT cho: {}", finalQueryForCache);
                     return cached.get(0) + "\n\n*(⚡ Trả lời siêu tốc từ Bộ nhớ đệm AI)*";
                 }
-                
-                // Nếu Cache MISS -> Gọi LLM suy nghĩ
-                log.info("[SEMANTIC CACHE] Cache MISS. Gọi LLM...");
-                String aiResponse = menuAgent.chat(sessionToken, userMessage, sessionToken);
-                
-                // Lưu kết quả vào Cache để lần sau dùng
-                String insertCache = "INSERT INTO menu.ai_semantic_cache (question, embedding, answer) VALUES (?, ?::vector, ?)";
-                jdbc.update(insertCache, userMessage, vectorString, aiResponse);
-                
-                return aiResponse;
+                log.info("[SEMANTIC CACHE] Global Cache MISS. Gọi LLM...");
+            }
+        } catch (Exception e) {
+            log.warn("[SEMANTIC CACHE] Lỗi Rewrite/Cache, fallback về LLM: {}", e.getMessage());
+        }
+
+        // 3.3: Gọi LLM (vẫn dùng câu gốc để AI nói chuyện tự nhiên dựa vào Chat Memory)
+        String aiResponse = menuAgent.chat(sessionToken, userMessage, sessionToken);
+
+        // 3.4: Lưu vào Global Cache (session_token = NULL cho tất cả)
+        if (vectorString != null) {
+            try {
+                String insertCache = "INSERT INTO menu.ai_semantic_cache (question, embedding, answer, session_token) VALUES (?, ?::vector, ?, NULL)";
+                jdbc.update(insertCache, finalQueryForCache, vectorString, aiResponse);
+                log.info("[SEMANTIC CACHE] Đã lưu Global Cache cho: {}", finalQueryForCache);
             } catch (Exception e) {
-                log.warn("[SEMANTIC CACHE] Lỗi Cache, fallback về LLM: {}", e.getMessage());
+                log.warn("[SEMANTIC CACHE] Lỗi Insert Db: {}", e.getMessage());
             }
         }
 
-        // Default: MENU (Không dùng Cache)
-        return menuAgent.chat(sessionToken, userMessage, sessionToken);
+        return aiResponse;
+    }
+
+    /**
+     * Kéo 4 tin nhắn gần nhất từ Redis và gọi QueryRewriterAgent
+     * để viết lại câu hỏi phụ thuộc ngữ cảnh thành câu Độc lập.
+     */
+    private String rewriteQuery(String sessionToken, String userMessage) {
+        try {
+            List<ChatMessage> messages = chatMemoryStore.getMessages(sessionToken);
+            if (messages == null || messages.isEmpty()) {
+                return userMessage; // Không có lịch sử -> Giữ nguyên
+            }
+
+            // Lấy tối đa 4 tin nhắn gần nhất
+            int start = Math.max(0, messages.size() - 4);
+            String history = messages.subList(start, messages.size()).stream()
+                    .map(msg -> msg.type() + ": " + msg.text())
+                    .collect(Collectors.joining("\n"));
+
+            String rewriterMemoryId = "stateless-rewriter-" + UUID.randomUUID().toString();
+            return queryRewriterAgent.rewrite(history, userMessage);
+        } catch (Exception e) {
+            log.warn("[REWRITER] Lỗi khi rewrite, giữ nguyên câu gốc: {}", e.getMessage());
+            return userMessage;
+        }
     }
 
     /**

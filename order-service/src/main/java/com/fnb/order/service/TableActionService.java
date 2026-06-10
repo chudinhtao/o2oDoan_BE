@@ -10,6 +10,8 @@ import com.fnb.order.repository.OrderRepository;
 import com.fnb.order.repository.OrderTicketRepository;
 import com.fnb.order.repository.TableRepository;
 import com.fnb.order.repository.TableSessionRepository;
+import com.fnb.order.repository.ReservationRepository;
+import com.fnb.order.entity.Reservation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -31,6 +33,7 @@ public class TableActionService {
     private final TableSessionRepository sessionRepository;
     private final OrderRepository orderRepository;
     private final OrderTicketRepository ticketRepository;
+    private final ReservationRepository reservationRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
 
     /**
@@ -45,6 +48,29 @@ public class TableActionService {
 
         TableInfo targetTable = tableRepository.findById(targetTableId)
                 .orElseThrow(() -> new ResourceNotFoundException("Bàn đích không tồn tại"));
+
+        if ("RESERVED".equals(sourceTable.getStatus())) {
+            Reservation res = reservationRepository.findActiveReservationByTableId(sourceTableId)
+                    .orElseThrow(() -> new BusinessException("Bàn được đánh dấu RESERVED nhưng không tìm thấy booking nào!"));
+            
+            if (!"FREE".equals(targetTable.getStatus())) {
+                throw new BusinessException("Bàn đích phải còn trống để chuyển tới");
+            }
+
+            res.getTables().removeIf(t -> t.getId().equals(sourceTableId));
+            res.getTables().add(targetTable);
+            reservationRepository.save(res);
+
+            sourceTable.setStatus("FREE");
+            targetTable.setStatus("RESERVED");
+            tableRepository.save(sourceTable);
+            tableRepository.save(targetTable);
+
+            publishTableStatus(sourceTable.getId(), "FREE");
+            publishTableStatus(targetTable.getId(), "RESERVED");
+            log.info("Chuyển bàn đặt: từ Bàn {} sang Bàn {}", sourceTable.getNumber(), targetTable.getNumber());
+            return;
+        }
 
         if (!"OCCUPIED".equals(sourceTable.getStatus())) {
             throw new BusinessException("Bàn nguồn phải đang có khách để chuyển");

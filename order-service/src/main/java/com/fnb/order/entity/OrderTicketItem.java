@@ -34,6 +34,15 @@ public class OrderTicketItem {
     @Column(name = "unit_price", nullable = false)
     private BigDecimal unitPrice;
 
+    @Column(name = "tax_rate", precision = 5, scale = 2)
+    private BigDecimal taxRate;
+
+    @Column(name = "tax_amount", precision = 12, scale = 2)
+    private BigDecimal taxAmount;
+
+    @Column(name = "image_url", length = 1000)
+    private String imageUrl;
+
     @Column(nullable = false)
     @Builder.Default
     private Integer quantity = 1;

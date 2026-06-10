@@ -54,6 +54,9 @@ public class MenuItem {
     @Builder.Default
     private boolean isActive = true;
 
+    @Column(name = "tax_rate", precision = 5, scale = 2)
+    private java.math.BigDecimal taxRate;
+
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

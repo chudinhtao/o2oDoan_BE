@@ -47,6 +47,10 @@ public class PromotionService {
                 result.getNumber(), result.getSize(), result.getTotalElements());
     }
 
+    public PromotionResponse getById(UUID id) {
+        return toResponse(findById(id));
+    }
+
     @Transactional
     public PromotionResponse create(PromotionRequest request) {
         validateRequest(request);

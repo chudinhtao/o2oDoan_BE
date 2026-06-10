@@ -11,4 +11,5 @@ public class CategoryRequest {
     private String imageUrl;
 
     private int displayOrder = 0;
+    private java.math.BigDecimal taxRate;
 }

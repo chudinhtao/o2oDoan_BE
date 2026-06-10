@@ -2,6 +2,7 @@ package com.fnb.order.controller;
 
 import com.fnb.common.dto.ApiResponse;
 import com.fnb.order.dto.response.SessionResponse;
+import com.fnb.order.dto.request.TakeawayRequest;
 import com.fnb.order.service.SessionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -32,8 +33,8 @@ public class SessionController {
 
     @PostMapping("/open/takeaway")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SERVER')")
-    public ResponseEntity<ApiResponse<SessionResponse>> openTakeawaySession() {
-        return ResponseEntity.ok(ApiResponse.ok("Tạo phiên mang đi thành công", sessionService.openTakeawaySession()));
+    public ResponseEntity<ApiResponse<SessionResponse>> openTakeawaySession(@RequestBody(required = false) TakeawayRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Tạo phiên mang đi thành công", sessionService.openTakeawaySession(request)));
     }
 
     @GetMapping("/{token}")
