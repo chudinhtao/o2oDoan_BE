@@ -31,7 +31,7 @@ public class StockTransactionController {
      */
     @PostMapping("/waste")
     @PreAuthorize("hasAnyRole('ADMIN', 'KITCHEN', 'SERVER', 'CASHIER')")
-    public ResponseEntity<ApiResponse<StockTransactionResponse>> recordWaste(
+    public ResponseEntity<ApiResponse<java.util.List<StockTransactionResponse>>> recordWaste(
             @Valid @RequestBody StockTransactionRequest request) {
         request.setTransactionType(TransactionType.OUT_WASTE);
         if (request.getQuantityChange().signum() > 0) {
@@ -47,7 +47,7 @@ public class StockTransactionController {
      */
     @PostMapping("/items/{itemId}/kill-switch")
     @PreAuthorize("hasAnyRole('ADMIN', 'KITCHEN', 'SERVER', 'CASHIER', 'POS', 'KDS')")
-    public ResponseEntity<ApiResponse<StockTransactionResponse>> killSwitch(
+    public ResponseEntity<ApiResponse<java.util.List<StockTransactionResponse>>> killSwitch(
             @PathVariable UUID itemId,
             @RequestParam(defaultValue = "Bếp báo hết nguyên liệu") String reason) {
         return ResponseEntity.ok(ApiResponse.ok(
@@ -62,7 +62,7 @@ public class StockTransactionController {
      */
     @PostMapping("/items/{itemId}/restore-stock")
     @PreAuthorize("hasAnyRole('ADMIN', 'KITCHEN', 'SERVER', 'CASHIER', 'POS', 'KDS')")
-    public ResponseEntity<ApiResponse<StockTransactionResponse>> restoreStock(
+    public ResponseEntity<ApiResponse<java.util.List<StockTransactionResponse>>> restoreStock(
             @PathVariable UUID itemId,
             @RequestParam BigDecimal quantity,
             @RequestParam(defaultValue = "Bếp xác nhận có hàng trở lại") String reason) {
@@ -82,7 +82,7 @@ public class StockTransactionController {
      */
     @PostMapping("/quick-grn")
     @PreAuthorize("hasAnyRole('ADMIN', 'SERVER')")
-    public ResponseEntity<ApiResponse<StockTransactionResponse>> quickGrn(
+    public ResponseEntity<ApiResponse<java.util.List<StockTransactionResponse>>> quickGrn(
             @Valid @RequestBody QuickGrnRequest request) {
         StockTransactionRequest txRequest = StockTransactionRequest.builder()
                 .itemId(request.getItemId())

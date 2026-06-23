@@ -74,13 +74,24 @@ public class AiConfig {
     @Bean("smartChatModel")
     public ChatLanguageModel smartChatModel(
             @Value("${langchain4j.open-ai.chat-model.api-key}") String apiKey,
-            @Value("${langchain4j.open-ai.chat-model.model-name}") String modelName) {
-        log.info("[AI-CONFIG] SmartModel: Gemini ({})", modelName);
-        return GoogleAiGeminiChatModel.builder()
+            @Value("${langchain4j.open-ai.chat-model.model-name}") String modelName,
+            @Value("${ai.gemini.fallback-model-name:gemini-3.5-flash}") String fallbackModelName) {
+        
+        log.info("[AI-CONFIG] SmartModel: Gemini ({}) with Fallback ({})", modelName, fallbackModelName);
+        
+        ChatLanguageModel primary = GoogleAiGeminiChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .temperature(0.0)
                 .build();
+                
+        ChatLanguageModel fallback = GoogleAiGeminiChatModel.builder()
+                .apiKey(apiKey)
+                .modelName(fallbackModelName)
+                .temperature(0.0)
+                .build();
+                
+        return new FallbackChatModel(primary, fallback);
     }
 
     // ═══════════════════════════════════════════════════════════════

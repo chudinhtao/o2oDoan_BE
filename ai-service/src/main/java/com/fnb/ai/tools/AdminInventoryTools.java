@@ -26,13 +26,13 @@ public class AdminInventoryTools {
     public String getExpiringStockItems(@P("Số ngày cần cảnh báo hết hạn") int days) {
         log.info("[INVENTORY-TOOL] getExpiringStockItems days={}", days);
         try {
-            var res = inventoryFeignClient.getExpiringStockItems(days);
-            if (res == null || res.getData() == null || res.getData().isEmpty()) {
+            var res = inventoryFeignClient.getExpiringStockItems(days, 0, 10, true);
+            if (res == null || res.getData() == null || res.getData().getContent() == null || res.getData().getContent().isEmpty()) {
                 return "✅ Hiện tại không có nguyên vật liệu nào sắp hết hạn trong " + days + " ngày tới.";
             }
 
             StringBuilder sb = new StringBuilder("⚠️ CẢNH BÁO HẾT HẠN (trong ").append(days).append(" ngày):\n\n");
-            for (var row : res.getData()) {
+            for (var row : res.getData().getContent()) {
                 sb.append("• [").append(row.itemSku()).append("] ").append(row.itemName())
                   .append("\n  Lô hàng: ").append(row.lotNumber())
                   .append(" | Ngày hết hạn: ").append(row.expiryDate())
@@ -54,8 +54,9 @@ public class AdminInventoryTools {
                                              @P("Ngày kết thúc (yyyy-MM-dd'T'HH:mm:ss)") String to) {
         log.info("[INVENTORY-TOOL] getInventoryVarianceReport from={} to={}", from, to);
         try {
-            LocalDateTime startDate = LocalDateTime.parse(from);
-            LocalDateTime endDate   = LocalDateTime.parse(to);
+            LocalDateTime startDate = safeParseDateTime(from);
+            LocalDateTime endDate   = safeParseDateTime(to);
+            if (startDate == null || endDate == null) return "Lỗi định dạng ngày giờ. Vui lòng cung cấp định dạng yyyy-MM-dd hoặc yyyy-MM-dd'T'HH:mm:ss.";
             var res = inventoryFeignClient.getVarianceReport(startDate, endDate);
             if (res == null || res.getData() == null) {
                 return "Không có dữ liệu hao hụt trong thời gian này.";
@@ -108,15 +109,25 @@ public class AdminInventoryTools {
     }
 
     @Tool("Truy vết giao dịch (Nhập/Xuất/Hủy) của 1 nguyên liệu cụ thể. " +
-          "Dùng khi admin hỏi: 'Tại sao cà phê dạo này hao nhiều', 'Lịch sử nhập xuất của món này'.")
+          "Dùng khi admin hỏi: 'Tại sao cà phê dạo này hao nhiều', 'Lịch sử nhập xuất của món này'. " +
+          "CẢNH BÁO: Tuyệt đối KHÔNG dùng tool này để tính tổng hoặc thống kê. Chỉ dùng để tra cứu chi tiết danh sách.")
     public String trackItemTransactions(
             @P("ID của nguyên liệu (tùy chọn)") String itemId,
             @P("Ngày bắt đầu ISO (tùy chọn)") String startDate,
-            @P("Ngày kết thúc ISO (tùy chọn)") String endDate) {
+            @P("Ngày kết thúc ISO (tùy chọn)") String endDate,
+            @P("Số lượng bản ghi tối đa (tùy chọn, mặc định 100)") Integer limit) {
         log.info("[ADMIN-TOOL] trackItemTransactions item={} start={} end={}", itemId, startDate, endDate);
         try {
-            UUID id = (itemId != null && !itemId.isEmpty()) ? UUID.fromString(itemId) : null;
-            var res = inventoryFeignClient.getStockTransactions(id, null, startDate, endDate, 0, 50);
+            UUID id = null;
+            if (itemId != null && !itemId.isEmpty()) {
+                try {
+                    id = UUID.fromString(itemId);
+                } catch (IllegalArgumentException ex) {
+                    return "Lỗi: ID nguyên liệu không hợp lệ. Vui lòng cung cấp chính xác UUID.";
+                }
+            }
+            int finalLimit = (limit != null && limit > 0) ? Math.min(limit, 500) : 100;
+            var res = inventoryFeignClient.getStockTransactions(id, null, startDate, endDate, 0, finalLimit);
             if (res == null || res.getData() == null) return "Không có dữ liệu giao dịch kho.";
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {
@@ -126,14 +137,17 @@ public class AdminInventoryTools {
     }
 
     @Tool("Kiểm tra danh sách Đơn đặt hàng (Purchase Orders) nhập nguyên liệu. " +
-          "Dùng khi admin hỏi: 'Lấy lịch sử nhập hàng', 'Tháng này nhập hàng hết bao nhiêu'.")
+          "Dùng khi admin hỏi: 'Lấy lịch sử nhập hàng', 'Tháng này nhập hàng hết bao nhiêu'. " +
+          "CẢNH BÁO: Tuyệt đối KHÔNG dùng tool này để tính tổng hoặc thống kê. Chỉ dùng để tra cứu chi tiết danh sách.")
     public String getRecentPurchaseOrders(
             @P("Trạng thái (COMPLETED, PENDING) (tùy chọn)") String status,
             @P("Ngày bắt đầu ISO (tùy chọn)") String startDate,
-            @P("Ngày kết thúc ISO (tùy chọn)") String endDate) {
+            @P("Ngày kết thúc ISO (tùy chọn)") String endDate,
+            @P("Số lượng bản ghi tối đa (tùy chọn, mặc định 100)") Integer limit) {
         log.info("[ADMIN-TOOL] getRecentPurchaseOrders status={} start={} end={}", status, startDate, endDate);
         try {
-            var res = inventoryFeignClient.getPurchaseOrders(status, startDate, endDate, 0, 20);
+            int finalLimit = (limit != null && limit > 0) ? Math.min(limit, 500) : 100;
+            var res = inventoryFeignClient.getPurchaseOrders(status, startDate, endDate, 0, finalLimit);
             if (res == null || res.getData() == null) return "Không có dữ liệu đơn nhập hàng.";
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {
@@ -143,14 +157,17 @@ public class AdminInventoryTools {
     }
 
     @Tool("Xem biên bản kiểm kê kho (Stocktakes). " +
-          "Dùng khi admin hỏi: 'Xem kết quả kiểm kê', 'Tuần trước kiểm kho có lệch không'.")
+          "Dùng khi admin hỏi: 'Xem kết quả kiểm kê', 'Tuần trước kiểm kho có lệch không'. " +
+          "CẢNH BÁO: Tuyệt đối KHÔNG dùng tool này để tính tổng hoặc thống kê. Chỉ dùng để tra cứu chi tiết danh sách.")
     public String getRecentStocktakes(
             @P("Trạng thái (COMPLETED, DRAFT) (tùy chọn)") String status,
             @P("Ngày bắt đầu ISO (tùy chọn)") String startDate,
-            @P("Ngày kết thúc ISO (tùy chọn)") String endDate) {
+            @P("Ngày kết thúc ISO (tùy chọn)") String endDate,
+            @P("Số lượng bản ghi tối đa (tùy chọn, mặc định 100)") Integer limit) {
         log.info("[ADMIN-TOOL] getRecentStocktakes status={} start={} end={}", status, startDate, endDate);
         try {
-            var res = inventoryFeignClient.getStocktakes(status, startDate, endDate, 0, 10);
+            int finalLimit = (limit != null && limit > 0) ? Math.min(limit, 500) : 100;
+            var res = inventoryFeignClient.getStocktakes(status, startDate, endDate, 0, finalLimit);
             if (res == null || res.getData() == null) return "Không có dữ liệu kiểm kê kho.";
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {
@@ -184,8 +201,51 @@ public class AdminInventoryTools {
         }
     }
 
+    @Tool("Lấy danh sách chi tiết các nguyên liệu đã bị xuất hủy (WASTE/SPOILAGE) gần đây. Dùng khi admin hỏi: 'chi tiết hàng hủy', 'những món nào bị vứt đi nhiều nhất'.")
+    public String getSpoilageReport() {
+        log.info("[INVENTORY-TOOL] getSpoilageReport");
+        try {
+            var res = inventoryFeignClient.getStockTransactions(null, "OUT_WASTE", null, null, 0, 50);
+            if (res == null || res.getData() == null) {
+                return "Không có dữ liệu xuất hủy gần đây.";
+            }
+            return "DỮ LIỆU JSON CHI TIẾT HÀNG HỦY (OUT_WASTE):\n" + objectMapper.writeValueAsString(res.getData());
+        } catch (Exception e) {
+            log.error("[INVENTORY-TOOL] getSpoilageReport error: {}", e.getMessage());
+            return "Lỗi khi lấy báo cáo hàng hủy.";
+        }
+    }
+
+    @Tool("Lấy danh sách các đơn nhập hàng (Purchase Orders) đang chờ NCC giao tới (Trạng thái CONFIRMED hoặc PARTIAL_RECEIVED). Dùng khi admin hỏi: 'hôm nay có đơn nhập nào đang về không', 'đơn hàng nào đang chờ giao'.")
+    public String getPendingPurchaseOrders() {
+        log.info("[INVENTORY-TOOL] getPendingPurchaseOrders");
+        try {
+            var res = inventoryFeignClient.getPurchaseOrders("CONFIRMED", null, null, 0, 50);
+            if (res == null || res.getData() == null) {
+                return "Không có đơn nhập hàng nào đang chờ giao.";
+            }
+            return "DỮ LIỆU JSON CÁC ĐƠN NHẬP HÀNG ĐANG CHỜ GIAO (CONFIRMED):\n" + objectMapper.writeValueAsString(res.getData());
+        } catch (Exception e) {
+            log.error("[INVENTORY-TOOL] getPendingPurchaseOrders error: {}", e.getMessage());
+            return "Lỗi khi lấy danh sách đơn nhập hàng đang chờ.";
+        }
+    }
+
     private String formatVnd(BigDecimal amount) {
         if (amount == null) return "0đ";
         return String.format("%,.0f", amount) + "đ";
+    }
+
+    private LocalDateTime safeParseDateTime(String dateStr) {
+        if (dateStr == null || dateStr.isBlank()) return null;
+        try {
+            dateStr = dateStr.trim();
+            if (dateStr.length() == 10) { // yyyy-MM-dd
+                return java.time.LocalDate.parse(dateStr).atStartOfDay();
+            }
+            return LocalDateTime.parse(dateStr);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

@@ -130,7 +130,7 @@ public class CustomerAiTools {
         if (ids.isEmpty()) return "SYSTEM_COMMAND: BÁO KHÁCH LÀ HIỆN QUÁN CHƯA CÓ MÓN NÀO TRONG MENU.";
         
         String result = fetchPricesViaFeign(ids);
-        return result.isEmpty() ? "SYSTEM_COMMAND: HỆ THỐNG ĐANG LỖI, VUI LÒNG BÁO KHÁCH ĐỢI LÁT NỮA HOẶC GỌI NHÂN VIÊN." : result;
+        return result.isEmpty() ? "SYSTEM_COMMAND: HỆ THỐNG ĐANG BẬN, VUI LÒNG BÁO KHÁCH ĐỢI LÁT NỮA HOẶC GỌI NHÂN VIÊN." : result;
     }
 
     @Tool("Lấy danh sách tùy chọn (size, topping, đường, đá...) của một món ăn cụ thể. " +
@@ -360,7 +360,7 @@ public class CustomerAiTools {
                     sessionId, callType, reason
             );
             orderFeignClient.callStaff(sessionToken, body);
-            return "SYSTEM: Đã gọi nhân viên thành công. Dựa vào lý do, hãy trả lời khách bằng tiếng Việt thật tự nhiên (ví dụ: 'Dạ, em đã gọi nhân viên ra hỗ trợ anh/chị rồi ạ, anh/chị đợi một chút nhé'), tuyệt đối KHÔNG lặp lại các từ tiếng Anh (như CLEAN, SUPPORT, WATER, BILL) trong câu trả lời.";
+            return "Đã gọi nhân viên thành công. Hãy báo cho khách biết là nhân viên đang ra hỗ trợ.";
         } catch (Exception e) {
             log.error("[TOOL] callStaff failed: {}", e.getMessage());
             return "Không thể gọi nhân viên lúc này, vui lòng vẫy tay hoặc nhấn chuông tại bàn nhé!";

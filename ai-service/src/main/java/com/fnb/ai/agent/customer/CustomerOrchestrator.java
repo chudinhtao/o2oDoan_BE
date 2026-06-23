@@ -11,6 +11,7 @@ import com.fnb.ai.tools.CustomerAiTools;
 import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -68,12 +69,28 @@ public class CustomerOrchestrator {
         String intent = routerAgent.routeIntent(routerMemoryId, userMessage).trim().toUpperCase();
         log.debug("[ORCHESTRATOR] sessionToken={} | intent={} | msg={}", sessionToken, intent, userMessage);
 
+        String tableInfo = "Session: " + sessionToken + " (Chưa xác định bàn)";
+        try {
+            String tableSql = "SELECT t.name, t.zone FROM orders.table_sessions ts JOIN orders.tables t ON ts.table_id = t.id WHERE ts.session_token = ?";
+            List<Map<String, Object>> rows = jdbc.queryForList(tableSql, sessionToken);
+            if (!rows.isEmpty()) {
+                String tName = (String) rows.get(0).get("name");
+                String tZone = (String) rows.get(0).get("zone");
+                tableInfo = String.format("Bàn: %s (Khu vực: %s) - Session: %s", 
+                                tName != null ? tName : "Chưa đặt tên", 
+                                tZone != null ? tZone : "Chung", 
+                                sessionToken);
+            }
+        } catch (Exception e) {
+            log.warn("[ORCHESTRATOR] Lỗi lấy thông tin bàn: {}", e.getMessage());
+        }
+
         if (intent.contains("ORDER")) {
-            return orderAgent.chat(sessionToken, userMessage, sessionToken);
+            return orderAgent.chat(sessionToken, userMessage, tableInfo);
         }
 
         if (intent.contains("GENERAL") || (!intent.contains("MENU") && !intent.contains("ORDER"))) {
-            return generalAgent.chat(sessionToken, userMessage, sessionToken);
+            return generalAgent.chat(sessionToken, userMessage, tableInfo);
         }
 
         // --- CHIẾN LƯỢC 3: QUERY REWRITER + GLOBAL SEMANTIC CACHE (Chỉ cho MENU) ---
@@ -113,7 +130,7 @@ public class CustomerOrchestrator {
         }
 
         // 3.3: Gọi LLM (vẫn dùng câu gốc để AI nói chuyện tự nhiên dựa vào Chat Memory)
-        String aiResponse = menuAgent.chat(sessionToken, userMessage, sessionToken);
+        String aiResponse = menuAgent.chat(sessionToken, userMessage, tableInfo);
 
         // 3.4: Lưu vào Global Cache (session_token = NULL cho tất cả)
         if (vectorString != null) {

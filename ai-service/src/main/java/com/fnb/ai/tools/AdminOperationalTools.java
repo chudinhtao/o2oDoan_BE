@@ -32,6 +32,7 @@ public class AdminOperationalTools {
     private final StaffFeignClient staffFeignClient;
     private final MenuFeignClient menuFeignClient;
     private final ReportFeignClient reportFeignClient;
+    private final com.fnb.ai.feign.OrderFeignClient orderFeignClient;
 
     @Tool("Lấy danh sách nhân viên và phân tích tải trọng: số lượng theo vai trò (CASHIER/KITCHEN/ADMIN), " +
           "ai đang hoạt động, ai bị khóa. " +
@@ -46,12 +47,12 @@ public class AdminOperationalTools {
 
             List<StaffFeignClient.StaffRow> staff = res.getData().getContent();
             long total  = staff.size();
-            long active = staff.stream().filter(StaffFeignClient.StaffRow::isActive).count();
+            long active = staff.stream().filter(StaffFeignClient.StaffRow::active).count();
             long inactive = total - active;
 
             // Phan loai theo role
             Map<String, Long> byRole = staff.stream()
-                    .filter(StaffFeignClient.StaffRow::isActive)
+                    .filter(StaffFeignClient.StaffRow::active)
                     .collect(Collectors.groupingBy(
                             s -> s.role() != null ? s.role() : "UNKNOWN",
                             Collectors.counting()
@@ -69,7 +70,7 @@ public class AdminOperationalTools {
 
             // Danh sach nhan vien active
             sb.append("\nDanh sách nhân viên đang hoạt động:\n");
-            staff.stream().filter(StaffFeignClient.StaffRow::isActive).forEach(s ->
+            staff.stream().filter(StaffFeignClient.StaffRow::active).forEach(s ->
                 sb.append("  • [").append(s.role()).append("] ")
                   .append(s.fullName() != null ? s.fullName() : s.username())
                   .append("\n")
@@ -146,7 +147,7 @@ public class AdminOperationalTools {
             try {
                 var staffRes = staffFeignClient.getAllStaff();
                 if (staffRes != null && staffRes.getData() != null && staffRes.getData().getContent() != null) {
-                    long active = staffRes.getData().getContent().stream().filter(StaffFeignClient.StaffRow::isActive).count();
+                    long active = staffRes.getData().getContent().stream().filter(StaffFeignClient.StaffRow::active).count();
                     sb.append("👥 Nhân sự: ").append(active).append(" đang hoạt động\n");
                 }
             } catch (Exception ignored) {
@@ -250,6 +251,24 @@ public class AdminOperationalTools {
         }
     }
 
+    @Tool("Lấy báo cáo tổng hợp chấm công của nhân viên từ ngày đến ngày (ví dụ: số giờ làm, đi muộn, về sớm). Format ngày: yyyy-MM-dd.")
+    public String getAttendanceSummary(
+            @P("Ngày bắt đầu (yyyy-MM-dd)") String from,
+            @P("Ngày kết thúc (yyyy-MM-dd) - có thể bỏ trống nếu chỉ xem 1 ngày") String to
+    ) {
+        log.info("[OPS-TOOL] getAttendanceSummary from={} to={}", from, to);
+        try {
+            var res = staffFeignClient.getAttendanceSummary(from, to);
+            if (res == null || res.getData() == null) {
+                return "Không thể lấy tổng hợp chấm công.";
+            }
+            return "Dữ liệu tổng hợp chấm công: " + res.getData().toString();
+        } catch (Exception e) {
+            log.error("[OPS-TOOL] getAttendanceSummary error: {}", e.getMessage());
+            return "Lỗi khi lấy tổng hợp chấm công: " + e.getMessage();
+        }
+    }
+
     @Tool("Lấy lịch làm việc (Shift Schedules) của nhân viên trong ngày. " +
           "Dùng khi admin hỏi: 'lịch làm việc hôm nay', 'ai làm ca sáng', 'ca tối có mấy người'.")
     public String getShiftSchedules(@P("Ngày cần xem lịch (yyyy-MM-dd)") String date) {
@@ -308,6 +327,98 @@ public class AdminOperationalTools {
         return "Theo đánh giá, hệ thống đang trong giai đoạn thu thập thêm dữ liệu lượng khách. " +
                "Để biết nhân sự có đủ hay không, hãy gọi tool 'getStaffAttendanceStatus' để xem số người đang làm, " +
                "và dùng 'getActiveKitchenTickets' hoặc kiểm tra số lượng bàn đang hoạt động.";
+    }
+
+    @Tool("Lấy danh sách nhân viên chi tiết kèm ID (dùng để lấy userId trước khi phân ca làm việc).")
+    public String getStaffList() {
+        log.info("[OPS-TOOL] getStaffList");
+        try {
+            var res = staffFeignClient.getAllStaff();
+            if (res == null || res.getData() == null || res.getData().getContent().isEmpty()) {
+                return "Không có dữ liệu nhân viên.";
+            }
+            StringBuilder sb = new StringBuilder("📋 DANH SÁCH NHÂN VIÊN:\n\n");
+            res.getData().getContent().forEach(s -> 
+                sb.append("- ").append(s.fullName() != null ? s.fullName() : s.username())
+                  .append(" | Vai trò: ").append(s.role())
+                  .append(" | Trạng thái: ").append(s.active() ? "Đang hoạt động" : "Bị khóa")
+                  .append(" | ID: ").append(s.id()).append("\n")
+            );
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[OPS-TOOL] Loi lay kpi: {}", e.getMessage());
+            return "Không lấy được báo cáo KPI: " + e.getMessage();
+        }
+    }
+
+    @Tool("Lấy danh sách và thống kê trạng thái các bàn hiện tại trong nhà hàng. Dùng khi admin hỏi: 'Sảnh đang có bao nhiêu khách', 'Còn bàn trống không', 'Bàn nào đang trống'.")
+    public String getTableStatus() {
+        log.info("[OPS-TOOL] getTableStatus");
+        try {
+            var res = orderFeignClient.getAllTablesForPos();
+            if (res == null || res.getData() == null || res.getData().isEmpty()) {
+                return "Không có dữ liệu bàn trên hệ thống.";
+            }
+
+            List<com.fnb.ai.feign.OrderFeignClient.PosTableRow> tables = res.getData();
+            long total = tables.size();
+            long free = tables.stream().filter(t -> "FREE".equalsIgnoreCase(t.status())).count();
+            long occupied = tables.stream().filter(t -> "OCCUPIED".equalsIgnoreCase(t.status())).count();
+            long other = total - free - occupied;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("TỔNG QUAN SẢNH HIỆN TẠI:\n");
+            sb.append("- Tổng số bàn: ").append(total).append("\n");
+            sb.append("- Bàn đang có khách (OCCUPIED): ").append(occupied).append("\n");
+            sb.append("- Bàn trống (FREE): ").append(free).append("\n");
+            sb.append("- Trạng thái khác (Dọn dẹp/Chờ TT...): ").append(other).append("\n\n");
+
+            if (occupied > 0) {
+                sb.append("Danh sách bàn đang có khách: ");
+                sb.append(tables.stream().filter(t -> "OCCUPIED".equalsIgnoreCase(t.status()))
+                        .map(t -> t.name()).collect(Collectors.joining(", ")));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[OPS-TOOL] Loi lay table status: {}", e.getMessage());
+            return "Lỗi khi lấy trạng thái bàn: " + e.getMessage();
+        }
+    }
+
+    @Tool("Lấy danh sách các chuông gọi phục vụ từ khách hàng mà nhân viên chưa xử lý xong (WATER, BILL, CLEAN, SUPPORT). Dùng khi admin hỏi: 'Có bàn nào đang gọi không', 'Nhân viên có ra kịp không', 'Chuông gọi sảnh'.")
+    public String getStaffCalls() {
+        log.info("[OPS-TOOL] getStaffCalls");
+        try {
+            var res = orderFeignClient.getActiveStaffCalls();
+            if (res == null || res.getData() == null || res.getData().isEmpty()) {
+                return "Hiện tại KHÔNG CÓ chuông gọi phục vụ nào đang chờ xử lý. Sảnh đang hoạt động ổn định.";
+            }
+
+            List<Object> calls = res.getData();
+            StringBuilder sb = new StringBuilder();
+            sb.append("HIỆN ĐANG CÓ ").append(calls.size()).append(" YÊU CẦU PHỤC VỤ CHƯA ĐƯỢC XỬ LÝ XONG:\n");
+            // Vì Object dạng Map từ JSON, ta có thể stringify nó
+            sb.append(calls.toString());
+            
+            sb.append("\nKhuyến nghị: Hãy nhắc nhở nhân viên sảnh (Server) ra bàn xử lý ngay để tránh ảnh hưởng trải nghiệm khách.");
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[OPS-TOOL] Loi lay staff calls: {}", e.getMessage());
+            return "Lỗi khi lấy danh sách chuông gọi phục vụ: " + e.getMessage();
+        }
+    }
+
+    @Tool("Lấy danh sách các ca làm việc mẫu (Shift Templates) kèm ID (dùng để lấy shiftId trước khi phân ca).")
+    public String getShiftTemplates() {
+        log.info("[OPS-TOOL] getShiftTemplates");
+        try {
+            var res = staffFeignClient.getAllShifts();
+            if (res == null || res.getData() == null) return "Không có dữ liệu ca làm mẫu.";
+            return "Danh sách ca làm việc mẫu: " + res.getData().toString();
+        } catch (Exception e) {
+            log.error("[OPS-TOOL] getShiftTemplates error: {}", e.getMessage());
+            return "Lỗi khi lấy danh sách ca làm việc mẫu: " + e.getMessage();
+        }
     }
 
     // ─── Helper ──────────────────────────────────────────────────────────────

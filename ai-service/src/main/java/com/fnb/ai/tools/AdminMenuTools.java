@@ -18,10 +18,10 @@ public class AdminMenuTools {
 
     @Tool("Kiểm tra toàn bộ danh sách Khuyến mãi (Promotions) trên hệ thống, bao gồm cả điều kiện áp dụng, đối tượng áp dụng. " +
           "Dùng khi admin hỏi: 'Liệt kê các mã giảm giá', 'Mã VIP10 có điều kiện gì'.")
-    public String checkAllPromotions() {
+    public String checkAllPromotions(@P("Số lượng bản ghi tối đa (tùy chọn, mặc định 100)") Integer limit) {
         log.info("[ADMIN-TOOL] checkAllPromotions");
         try {
-            var res = menuFeignClient.getAllPromotions(0, 50);
+            var res = menuFeignClient.getAllPromotions(0, limit != null ? limit : 100);
             if (res == null || res.getData() == null) return "Không có dữ liệu khuyến mãi.";
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {

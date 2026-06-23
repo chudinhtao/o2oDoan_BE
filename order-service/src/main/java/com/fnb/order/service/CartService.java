@@ -41,6 +41,12 @@ public class CartService {
      * Lấy giỏ hàng thao tác trên Redis
      */
     public CartDto getCart(String sessionToken) {
+        // Validate session trước khi trả về giỏ hàng (ngăn chặn khách dùng token sai/hết hạn)
+        var session = sessionService.getSessionCurrent(sessionToken);
+        if (!"ACTIVE".equals(session.getStatus())) {
+            throw new BusinessException("Phiên làm việc đã kết thúc hoặc không hợp lệ.");
+        }
+
         String key = CART_PREFIX + sessionToken;
         String cartJson = redisTemplate.opsForValue().get(key);
         CartDto cart = null;

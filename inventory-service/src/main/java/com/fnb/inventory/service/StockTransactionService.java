@@ -34,15 +34,18 @@ public class StockTransactionService {
     private final com.fnb.inventory.repository.InventoryBatchRepository batchRepository;
     private final com.fnb.inventory.repository.LocationRepository locationRepository;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private final UserResolverService userResolverService;
 
     /**
      * Immutable Audit Ledger - Ghi nhận mọi sự thay đổi kho.
      * Hàm này MUST be @Transactional.
      */
     @Transactional
-    public StockTransactionResponse recordTransaction(StockTransactionRequest request) {
+    public java.util.List<StockTransactionResponse> recordTransaction(StockTransactionRequest request) {
         log.info("Recording stock transaction for item {}: {} ({})", 
                 request.getItemId(), request.getTransactionType(), request.getQuantityChange());
+
+        java.util.List<StockTransactionResponse> responses = new java.util.ArrayList<>();
 
         InventoryItem item = itemRepository.findById(request.getItemId())
                 .orElseThrow(() -> new ResourceNotFoundException("Nguyên liệu không tồn tại"));
@@ -64,7 +67,13 @@ public class StockTransactionService {
             batchLookup = batchRepository.findFirstByItemIdAndLotNumber(request.getItemId(), request.getLotNumber()).orElse(null);
         }
 
-        StockTransaction transaction = StockTransaction.builder()
+
+
+        BigDecimal remainingQty = request.getQuantityChange();
+
+        // 2. Cập nhật tồn kho theo FEFO (nếu xuất) hoặc cộng dồn (nếu nhập)
+        if (remainingQty.compareTo(BigDecimal.ZERO) >= 0) {
+            StockTransaction transaction = StockTransaction.builder()
                 .item(item)
                 .batch(batchLookup)
                 .transactionType(request.getTransactionType())
@@ -75,12 +84,7 @@ public class StockTransactionService {
                 .location(request.getLocationId() != null ? locationRepository.findById(request.getLocationId()).orElse(null) : null)
                 .reason(request.getReason())
                 .build();
-        transaction = transactionRepository.save(transaction);
-
-        BigDecimal remainingQty = request.getQuantityChange();
-
-        // 2. Cập nhật tồn kho theo FEFO (nếu xuất) hoặc cộng dồn (nếu nhập)
-        if (remainingQty.compareTo(BigDecimal.ZERO) > 0) {
+            transaction = transactionRepository.save(transaction);
             // Nhập kho
             InventoryLevel targetLevel;
             boolean hasLotNumber = request.getLotNumber() != null && !request.getLotNumber().trim().isEmpty();
@@ -150,53 +154,35 @@ public class StockTransactionService {
                         
                 targetLevel = null;
 
-                if (TransactionType.REFUND.equals(request.getTransactionType())) {
-                    // [BUGFIX] Hoàn trả đơn hàng (REFUND): Tự động trả về Lô đang sử dụng (FEFO)
-                    targetLevel = levels.stream()
-                            .filter(l -> {
-                                if (finalLoc == null) return l.getLocation() == null;
-                                return l.getLocation() != null && l.getLocation().getId().equals(finalLoc.getId());
-                            })
-                            .filter(l -> l.getBatch() != null && l.getBatch().getExpiryDate() != null)
-                            .min(java.util.Comparator.comparing(l -> l.getBatch().getExpiryDate()))
-                            .orElse(null);
-
-                    // NẾU KHÔNG CÓ LÔ NÀO KHẢ DỤNG, TẠO LÔ MỚI MANG TÊN RETURN-[Mã đơn hàng]
-                    if (targetLevel == null && request.getReferenceId() != null) {
-                        String returnLotNumber = "RETURN-" + request.getReferenceId().toString().substring(0, 6).toUpperCase();
-                        
-                        com.fnb.inventory.entity.InventoryBatch returnBatch = batchRepository.findFirstByItemIdAndLotNumber(item.getId(), returnLotNumber)
-                            .orElseGet(() -> {
-                                com.fnb.inventory.entity.InventoryBatch newBatch = com.fnb.inventory.entity.InventoryBatch.builder()
-                                    .item(item)
-                                    .lotNumber(returnLotNumber)
-                                    .build();
-                                return batchRepository.save(newBatch);
-                            });
-
+                if (TransactionType.REFUND.equals(request.getTransactionType()) || TransactionType.ADJUSTMENT.equals(request.getTransactionType())) {
+                    if ("N/A".equals(request.getLotNumber()) || (TransactionType.ADJUSTMENT.equals(request.getTransactionType()) && request.getLotNumber() == null)) {
                         targetLevel = levels.stream()
-                            .filter(l -> {
-                                if (finalLoc == null) return l.getLocation() == null;
-                                return l.getLocation() != null && l.getLocation().getId().equals(finalLoc.getId());
-                            })
-                            .filter(l -> l.getBatch() != null && l.getBatch().getId().equals(returnBatch.getId()))
-                            .findFirst()
-                            .orElse(null);
-
-                        if (targetLevel == null) {
-                            targetLevel = com.fnb.inventory.entity.InventoryLevel.builder()
-                                    .item(item)
-                                    .batch(returnBatch)
-                                    .location(finalLoc)
-                                    .currentStock(BigDecimal.ZERO)
-                                    .build();
-                            targetLevel = levelRepository.save(targetLevel);
-                            levels.add(targetLevel);
-                        }
-
-                        // Cập nhật lại lô cho giao dịch này
-                        transaction.setBatch(returnBatch);
-                        transaction = transactionRepository.save(transaction);
+                                .filter(l -> {
+                                    if (finalLoc == null) return l.getLocation() == null;
+                                    return l.getLocation() != null && l.getLocation().getId().equals(finalLoc.getId());
+                                })
+                                .filter(l -> l.getBatch() == null)
+                                .findFirst()
+                                .orElse(null);
+                    } else if (request.getLotNumber() != null && !request.getLotNumber().trim().isEmpty()) {
+                        targetLevel = levels.stream()
+                                .filter(l -> {
+                                    if (finalLoc == null) return l.getLocation() == null;
+                                    return l.getLocation() != null && l.getLocation().getId().equals(finalLoc.getId());
+                                })
+                                .filter(l -> l.getBatch() != null && l.getBatch().getLotNumber().equals(request.getLotNumber()))
+                                .findFirst()
+                                .orElse(null);
+                    } else {
+                        // Logic cũ: tìm lô FEFO (chưa đầy / phù hợp)
+                        targetLevel = levels.stream()
+                                .filter(l -> {
+                                    if (finalLoc == null) return l.getLocation() == null;
+                                    return l.getLocation() != null && l.getLocation().getId().equals(finalLoc.getId());
+                                })
+                                .filter(l -> l.getBatch() != null && l.getBatch().getExpiryDate() != null)
+                                .min(java.util.Comparator.comparing(l -> l.getBatch().getExpiryDate()))
+                                .orElse(null);
                     }
                 }
 
@@ -252,7 +238,9 @@ public class StockTransactionService {
             }
 
             // [BUGFIX] Nếu client chỉ định đích danh 1 lô cụ thể để hủy/xuất, chỉ quét các level thuộc lô đó
-            if (request.getLotNumber() != null && !request.getLotNumber().trim().isEmpty()) {
+            if ("N/A".equals(request.getLotNumber())) {
+                stream = stream.filter(l -> l.getBatch() == null);
+            } else if (request.getLotNumber() != null && !request.getLotNumber().trim().isEmpty()) {
                 stream = stream.filter(l -> l.getBatch() != null && l.getBatch().getLotNumber().equals(request.getLotNumber()));
             } else if (TransactionType.ADJUSTMENT.equals(request.getTransactionType())) {
                 // Nếu là ADJUSTMENT mà không có lotNumber, nghĩa là đang điều chỉnh lượng của Lô mặc định (N/A)
@@ -286,6 +274,20 @@ public class StockTransactionService {
                 lvl.setCurrentStock(lvl.getCurrentStock().subtract(deductible));
                 levelRepository.save(lvl);
                 qtyToDeduct = qtyToDeduct.subtract(deductible);
+
+                StockTransaction outTx = StockTransaction.builder()
+                    .item(item)
+                    .batch(lvl.getBatch())
+                    .transactionType(request.getTransactionType())
+                    .quantityChange(deductible.negate())
+                    .unitPriceAtTransaction(priceAtTransaction)
+                    .referenceId(request.getReferenceId())
+                    .orderLineItemId(request.getOrderLineItemId())
+                    .location(lvl.getLocation())
+                    .reason(request.getReason())
+                    .build();
+                outTx = transactionRepository.save(outTx);
+                responses.add(mapToResponse(outTx));
             }
 
             // Nếu vẫn còn thiếu (qtyToDeduct > 0), trừ vào lô mặc định tạo tồn kho âm tại vị trí (location) được chỉ định
@@ -311,6 +313,20 @@ public class StockTransactionService {
                 fallbackLevel.setCurrentStock(fallbackLevel.getCurrentStock().subtract(qtyToDeduct));
                 levelRepository.save(fallbackLevel);
                 log.warn("Nguyên liệu {} đã bị TRỪ ÂM KHO số lượng: {} tại location: {}", item.getName(), qtyToDeduct, request.getLocationId());
+
+                StockTransaction fallbackTx = StockTransaction.builder()
+                    .item(item)
+                    .batch(null)
+                    .transactionType(request.getTransactionType())
+                    .quantityChange(qtyToDeduct.negate())
+                    .unitPriceAtTransaction(priceAtTransaction)
+                    .referenceId(request.getReferenceId())
+                    .orderLineItemId(request.getOrderLineItemId())
+                    .location(fallbackLevel.getLocation())
+                    .reason(request.getReason())
+                    .build();
+                fallbackTx = transactionRepository.save(fallbackTx);
+                responses.add(mapToResponse(fallbackTx));
             }
         }
 
@@ -340,14 +356,14 @@ public class StockTransactionService {
             eventPublisher.publishEvent(new com.fnb.inventory.dto.event.InventoryInStockEvent(item.getId(), item.getName()));
         }
 
-        return mapToResponse(transaction);
+        return responses;
     }
 
     /**
      * Kill-switch thủ công: Set tồn kho về 0 bằng 1 giao dịch MANUAL_BLOCK.
      */
     @Transactional
-    public StockTransactionResponse applyKillSwitch(UUID itemId, String reason) {
+    public java.util.List<StockTransactionResponse> applyKillSwitch(UUID itemId, String reason) {
         InventoryItem item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Nguyên liệu không tồn tại"));
 
@@ -370,7 +386,7 @@ public class StockTransactionService {
                     .quantityChange(BigDecimal.ZERO)
                     .reason(reason + " (đã hết từ trước)")
                     .build();
-            return mapToResponse(transactionRepository.save(dummy));
+            return java.util.Collections.singletonList(mapToResponse(transactionRepository.save(dummy)));
         }
 
         BigDecimal deduction = currentStock.negate();
@@ -415,7 +431,7 @@ public class StockTransactionService {
                 .orderLineItemId(tx.getOrderLineItemId())
                 .reason(tx.getReason())
                 .createdAt(tx.getCreatedAt())
-                .createdBy(tx.getCreatedBy())
+                .createdBy(userResolverService.resolveName(tx.getCreatedBy()))
                 .lotNumber(tx.getBatch() != null ? tx.getBatch().getLotNumber() : null)
                 .expiryDate(tx.getBatch() != null ? tx.getBatch().getExpiryDate() : null)
                 .locationId(tx.getLocation() != null ? tx.getLocation().getId() : null)
@@ -450,6 +466,7 @@ public class StockTransactionService {
                     .filter(l -> l.getCurrentStock().compareTo(BigDecimal.ZERO) > 0)
                     .filter(l -> {
                         if (itemReq.getLotNumber() == null || itemReq.getLotNumber().trim().isEmpty()) return true;
+                        if ("N/A".equals(itemReq.getLotNumber())) return l.getBatch() == null;
                         return l.getBatch() != null && l.getBatch().getLotNumber().equals(itemReq.getLotNumber());
                     })
                     .sorted((l1, l2) -> {

@@ -26,7 +26,7 @@ public class MenuItemRequest {
     private BigDecimal taxRate;
 
     @NotBlank(message = "Station không được trống")
-    @Pattern(regexp = "HOT|COLD|DRINK", message = "Station phải là HOT, COLD hoặc DRINK")
+    @Pattern(regexp = "HOT|COLD|DRINK|RETAIL", message = "Station phải là HOT, COLD, DRINK hoặc RETAIL")
     private String station;
 
     @JsonProperty("isFeatured")

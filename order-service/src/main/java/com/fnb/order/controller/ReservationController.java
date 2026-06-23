@@ -76,8 +76,10 @@ public class ReservationController {
             @RequestParam(required = false) String phone,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
+            @RequestParam(required = false) Boolean hasDeposit,
+            @RequestParam(required = false) String refundStatus,
             org.springframework.data.domain.Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.ok("Lấy danh sách đặt bàn thành công", reservationService.getAdminReservations(status, phone, startDate, endDate, pageable)));
+        return ResponseEntity.ok(ApiResponse.ok("Lấy danh sách đặt bàn thành công", reservationService.getAdminReservations(status, phone, startDate, endDate, hasDeposit, refundStatus, pageable)));
     }
 
     @GetMapping("/admin/reservations/{id}")

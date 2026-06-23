@@ -38,9 +38,9 @@ public class PaymentController {
             java.util.Map<String, String> payosData = payOSPaymentService.createPaymentLink(orderId, sessionToken, amount, cashAmount);
             return ResponseEntity.ok(payosData);
         } catch (AccessDeniedException e) {
-            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+            return ResponseEntity.status(403).body(Map.of("message", e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 

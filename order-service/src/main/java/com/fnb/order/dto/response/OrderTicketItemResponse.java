@@ -22,6 +22,9 @@ public class OrderTicketItemResponse {
     private String imageUrl;
     private LocalDateTime createdAt;
     private LocalDateTime servedAt;
+    private UUID servedBy;
+    private UUID preparedBy;
+    private UUID cancelledBy;
     private List<OrderItemOptionResponse> options;
     private Boolean isAlertSent;
     private Boolean kitchenAlertSent;

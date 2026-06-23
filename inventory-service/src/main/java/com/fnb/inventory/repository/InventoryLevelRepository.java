@@ -24,6 +24,16 @@ public interface InventoryLevelRepository extends JpaRepository<InventoryLevel, 
     """)
     java.util.List<Object[]> findLowStockItemsWithTotal();
 
+    @org.springframework.data.jpa.repository.Query("""
+        SELECT i, SUM(l.currentStock) as totalStock
+        FROM InventoryItem i
+        LEFT JOIN InventoryLevel l ON l.item = i
+        WHERE i.isActive = true
+        GROUP BY i
+        HAVING COALESCE(SUM(l.currentStock), 0) <= i.safetyStock
+    """)
+    org.springframework.data.domain.Page<Object[]> findLowStockItemsWithTotalPageable(org.springframework.data.domain.Pageable pageable);
+
     /** @deprecated Use findLowStockItemsWithTotal instead */
     @org.springframework.data.jpa.repository.Query("""
         SELECT l FROM InventoryLevel l
@@ -43,6 +53,19 @@ public interface InventoryLevelRepository extends JpaRepository<InventoryLevel, 
         ORDER BY b.expiryDate ASC
     """)
     java.util.List<InventoryLevel> findExpiringItems(@org.springframework.data.repository.query.Param("targetDate") java.time.LocalDate targetDate);
+
+    @org.springframework.data.jpa.repository.Query("""
+        SELECT l FROM InventoryLevel l
+        JOIN FETCH l.item i
+        JOIN FETCH l.batch b
+        WHERE l.currentStock > 0
+        AND b.expiryDate <= :targetDate
+        AND i.isActive = true
+        ORDER BY b.expiryDate ASC
+    """)
+    org.springframework.data.domain.Page<InventoryLevel> findExpiringItemsPageable(
+            @org.springframework.data.repository.query.Param("targetDate") java.time.LocalDate targetDate,
+            org.springframework.data.domain.Pageable pageable);
 
     @org.springframework.data.jpa.repository.Query(value = """
         SELECT COALESCE(SUM(l.current_stock * COALESCE(i.avg_cost_price, 0)), 0)

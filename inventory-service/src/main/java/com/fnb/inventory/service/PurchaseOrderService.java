@@ -45,6 +45,7 @@ public class PurchaseOrderService {
     private final UomRepository uomRepository;
     private final UomConversionService uomConversionService;
     private final StockTransactionService stockTransactionService;
+    private final UserResolverService userResolverService;
 
     // =====================================================================
     //  CRUD ON DRAFT
@@ -331,7 +332,7 @@ public class PurchaseOrderService {
                 .expectedDate(po.getExpectedDate())
                 .notes(po.getNotes())
                 .createdAt(po.getCreatedAt())
-                .createdBy(po.getCreatedBy())
+                .createdBy(userResolverService.resolveName(po.getCreatedBy()))
                 .confirmedAt(po.getConfirmedAt())
                 .items(po.getItems().stream().map(i -> PurchaseOrderResponse.PurchaseOrderItemResponse.builder()
                         .id(i.getId())

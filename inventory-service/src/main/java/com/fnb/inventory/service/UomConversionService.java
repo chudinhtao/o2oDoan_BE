@@ -30,6 +30,10 @@ public class UomConversionService {
         return conversionRepository.findByItemId(itemId).stream().map(this::toResponse).toList();
     }
 
+    public List<UomConversionResponse> findAll() {
+        return conversionRepository.findAll().stream().map(this::toResponse).toList();
+    }
+
     @Transactional
     public UomConversionResponse create(UomConversionRequest request) {
         InventoryItem item = itemRepository.findById(request.getItemId())

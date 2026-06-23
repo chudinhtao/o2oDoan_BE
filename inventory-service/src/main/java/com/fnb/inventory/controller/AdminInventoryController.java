@@ -239,6 +239,12 @@ public class AdminInventoryController {
 
     // ─── UoM Conversions ──────────────────────────────────────────────
 
+    @GetMapping("/conversions")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public ResponseEntity<ApiResponse<List<UomConversionResponse>>> listAllConversions() {
+        return ResponseEntity.ok(ApiResponse.ok(conversionService.findAll()));
+    }
+
     @GetMapping("/items/{itemId}/conversions")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
     public ResponseEntity<ApiResponse<List<UomConversionResponse>>> listConversions(@PathVariable UUID itemId) {

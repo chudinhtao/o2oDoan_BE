@@ -70,6 +70,9 @@ public class OrderTicketItem {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "prepared_by")
+    private UUID preparedBy;
+
     /** Phase 2 — Server Role: Thời điểm bưng món (dùng cho Undo 30s và KPI). */
     @Column(name = "served_at")
     private LocalDateTime servedAt;

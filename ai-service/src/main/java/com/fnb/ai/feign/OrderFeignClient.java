@@ -23,6 +23,9 @@ public interface OrderFeignClient {
 
     record StaffCallBody(UUID sessionId, String callType, String message) {}
 
+    @org.springframework.web.bind.annotation.GetMapping("/api/staff-calls/active")
+    com.fnb.common.dto.ApiResponse<java.util.List<Object>> getActiveStaffCalls();
+
     @org.springframework.web.bind.annotation.GetMapping("/api/tables/pos")
     com.fnb.common.dto.ApiResponse<java.util.List<PosTableRow>> getAllTablesForPos();
 

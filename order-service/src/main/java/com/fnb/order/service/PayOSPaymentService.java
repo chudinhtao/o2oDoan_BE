@@ -57,7 +57,12 @@ public class PayOSPaymentService {
                 throw new AccessDeniedException("Bạn không có quyền thực hiện thanh toán cho đơn hàng này!");
             }
 
-            // 3. Xử lý trường hợp số tiền thanh toán = 0 (Ví dụ: áp mã giảm giá 100%)
+            // 3. Kiểm tra xem đơn hàng có rỗng không (chưa gọi món nào)
+            if (order.getTickets() == null || order.getTickets().isEmpty()) {
+                throw new com.fnb.common.exception.BusinessException("Hóa đơn chưa có món nào, không thể thanh toán!");
+            }
+
+            // 4. Xử lý trường hợp số tiền thanh toán = 0 (Ví dụ: áp mã giảm giá 100%)
             String baseUrl = qrBaseUrl.replace("/table?qr=", "/");
             if (!baseUrl.endsWith("/")) {
                 baseUrl += "/";
@@ -73,7 +78,7 @@ public class PayOSPaymentService {
                 return result;
             }
 
-            // 4. Chuẩn bị yêu cầu gửi sang PayOS
+            // 5. Chuẩn bị yêu cầu gửi sang PayOS
 
             CreatePaymentLinkRequest request = CreatePaymentLinkRequest.builder()
                 .orderCode(orderCode)

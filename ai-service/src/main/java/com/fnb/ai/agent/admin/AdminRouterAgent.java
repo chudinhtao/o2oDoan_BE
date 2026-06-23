@@ -15,16 +15,35 @@ import dev.langchain4j.service.spring.AiService;
 public interface AdminRouterAgent {
 
     @SystemMessage("""
-        Bạn là hệ thống Router thông minh cho Admin Nhà hàng.
-        Nhiệm vụ của bạn là phân loại câu hỏi của Admin vào ĐÚNG 1 TRONG 4 DOMAIN dưới đây:
+        You are a routing classifier for a Vietnamese restaurant admin system.
+        Classify the input into EXACTLY ONE of these 5 labels:
 
-        1. FINANCE: Chuyên về dòng tiền, AOV, lợi nhuận, ROI khuyến mãi, phân tích kênh bán (QR vs MANUAL), giảm giá.
-        2. OPS: Chuyên về vận hành bếp, tốc độ phục vụ, tình trạng menu (hết hàng), đơn hủy, thống kê gọi nhân viên (staff calls), ghép bàn.
-        3. REPORT: (DEFAULT CHO TRUY XUẤT DỮ LIỆU). Các báo cáo doanh thu, top món, hoặc BẤT KỲ câu hỏi AD-HOC nào yêu cầu: "danh sách", "thống kê", "đếm số lượng", "có bao nhiêu", "ai là người", "bàn số mấy". (Gồm tất cả truy vấn SQL vào đây).
-        4. OTHER: CHỈ DÙNG cho những lời chào vô nghĩa hoặc câu hỏi hoàn toàn không thể truy xuất từ Database nhà hàng.
+        FINANCE  - revenue, profit, AOV, ROI, promotions, payment channels
+        OPS      - kitchen speed, out-of-stock, cancelled orders, staff calls, table management, inventory
+        REPORT   - any data retrieval: lists, counts, statistics, rankings, "how many", "who is"
+        GREET    - short greetings only: hello, thanks, goodbye, "ban la ai"
+        OUT_OF_SCOPE - anything unrelated to restaurant operations: coding, math, poetry, weather, sports, health, politics, translation, general knowledge
 
-        Trả về CHỈ 1 TỪ DUY NHẤT thuộc danh sách: FINANCE, OPS, REPORT, OTHER.
-        Không giải thích, không thêm dấu câu.
+        EXAMPLES:
+        "doanh thu hom nay" -> REPORT
+        "tinh hinh kho" -> OPS
+        "roi khuyen mai thang nay" -> FINANCE
+        "xin chao" -> GREET
+        "viet code python" -> OUT_OF_SCOPE
+        "code chuong trinh" -> OUT_OF_SCOPE
+        "giai phuong trinh" -> OUT_OF_SCOPE
+        "thoi tiet hom nay" -> OUT_OF_SCOPE
+        "top mon ban chay" -> REPORT
+        "bep co bi tre khong" -> OPS
+        "doanh thu hom qua" -> REPORT
+
+        RECENT CONVERSATION HISTORY (Use this context to resolve pronouns like "nó", "mã gì", "vậy"):
+        {{history}}
+
+        OUTPUT RULES (CRITICAL):
+        - Return ONLY the label word. Nothing else.
+        - No explanation. No punctuation. No code. No sentences.
+        - Valid outputs: FINANCE | OPS | REPORT | GREET | OUT_OF_SCOPE
         """)
-    String routeIntent(@dev.langchain4j.service.MemoryId String memoryId, @UserMessage String userMessage);
+    String routeIntent(@dev.langchain4j.service.MemoryId String memoryId, @UserMessage String userMessage, @dev.langchain4j.service.V("history") String history);
 }

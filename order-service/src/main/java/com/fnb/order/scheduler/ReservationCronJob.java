@@ -26,9 +26,9 @@ public class ReservationCronJob {
 
     /**
      * Quét các Booking quá giờ đến 30 phút mà chưa check-in.
-     * Chạy 15 phút một lần.
+     * Chạy 5 phút một lần (300,000 ms).
      */
-    @Scheduled(fixedRate = 900_000)
+    @Scheduled(fixedRate = 300_000)
     @Transactional
     public void autoCancelNoShowReservations() {
         LocalDateTime thresholdTime = LocalDateTime.now().minusMinutes(30);

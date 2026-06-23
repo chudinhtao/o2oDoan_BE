@@ -36,7 +36,7 @@ public class Order {
 
     @Column(name = "order_type", length = 20)
     @Builder.Default
-    private String orderType = "DINE_IN"; // DINE_IN, TAKEAWAY, DELIVERY
+    private String orderType = "DINE_IN"; // DINE_IN, TAKEAWAY
 
     @Column(name = "customer_name", length = 100)
     private String customerName;

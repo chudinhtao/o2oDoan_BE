@@ -44,6 +44,7 @@ public class OrderEventConsumerService {
 
     private final StockTransactionService stockTransactionService;
     private final StockTransactionRepository stockTransactionRepository;
+    private final UomConversionService uomConversionService;
     private final ObjectMapper objectMapper;
 
     @KafkaListener(topics = {"order.created", "order.paid"}, groupId = "${spring.kafka.consumer.group-id}")
@@ -129,15 +130,17 @@ public class OrderEventConsumerService {
                         continue;
                     }
 
+                    String orderType = event.has("orderType") ? event.get("orderType").asText() : "DINE_IN";
+
                     Map<UUID, CancelAggregate> cancelMap = new HashMap<>();
 
-                    aggregateItemCancel(menuItemId, quantity, isWaste, cancelMap);
+                    aggregateItemCancel(menuItemId, quantity, orderType, isWaste, cancelMap);
                     
                     if (item.has("modifiers")) {
                         for (JsonNode modifier : item.get("modifiers")) {
                             if (modifier.has("menuItemId")) {
                                 UUID modMenuItemId = UUID.fromString(modifier.get("menuItemId").asText());
-                                aggregateItemCancel(modMenuItemId, quantity, isWaste, cancelMap);
+                                aggregateItemCancel(modMenuItemId, quantity, orderType, isWaste, cancelMap);
                             }
                         }
                     }
@@ -182,15 +185,17 @@ public class OrderEventConsumerService {
                         continue;
                     }
                     
+                    String orderType = event.has("orderType") ? event.get("orderType").asText() : "DINE_IN";
+                    
                     Map<UUID, CancelAggregate> cancelMap = new HashMap<>();
 
-                    aggregateItemCancel(menuItemId, quantity, isWaste, cancelMap);
+                    aggregateItemCancel(menuItemId, quantity, orderType, isWaste, cancelMap);
 
                     if (item.has("options") && item.get("options").isArray()) {
                         for (JsonNode option : item.get("options")) {
                             if (option.has("menuItemId")) {
                                 UUID optMenuItemId = UUID.fromString(option.get("menuItemId").asText());
-                                aggregateItemCancel(optMenuItemId, quantity, isWaste, cancelMap);
+                                aggregateItemCancel(optMenuItemId, quantity, orderType, isWaste, cancelMap);
                             }
                         }
                     }
@@ -232,7 +237,8 @@ public class OrderEventConsumerService {
                 continue;
             }
 
-            BigDecimal baseQty = recipeItem.getQuantity().multiply(BigDecimal.valueOf(quantity));
+            BigDecimal convertedQty = uomConversionService.calculateBaseQuantity(recipeItem.getInventoryItem(), recipeItem.getUom().getId(), recipeItem.getQuantity());
+            BigDecimal baseQty = convertedQty.multiply(BigDecimal.valueOf(quantity));
             BigDecimal wastage = recipeItem.getWastagePercent() != null ? recipeItem.getWastagePercent() : BigDecimal.ZERO;
             BigDecimal totalDeduction = baseQty.multiply(BigDecimal.ONE.add(wastage.divide(BigDecimal.valueOf(100), 4, java.math.RoundingMode.HALF_UP)));
 
@@ -249,7 +255,7 @@ public class OrderEventConsumerService {
         }
     }
 
-    private void aggregateItemCancel(UUID menuItemId, int quantity, boolean isWaste, Map<UUID, CancelAggregate> cancelMap) {
+    private void aggregateItemCancel(UUID menuItemId, int quantity, String orderType, boolean isWaste, Map<UUID, CancelAggregate> cancelMap) {
         // Try to find recipe for MAIN_ITEM or MODIFIER
         Optional<Recipe> recipeOpt = recipeRepository.findBySaleItemIdWithItems(menuItemId);
         if (recipeOpt.isEmpty()) {
@@ -262,7 +268,18 @@ public class OrderEventConsumerService {
 
         Recipe recipe = recipeOpt.get();
         for (RecipeItem recipeItem : recipe.getItems()) {
-            BigDecimal baseQty = recipeItem.getQuantity().multiply(BigDecimal.valueOf(quantity));
+            IngredientScope scope = recipeItem.getScope() != null ? recipeItem.getScope() : IngredientScope.ALWAYS;
+            String normalizedType = orderType != null ? orderType.replace("_", "").toUpperCase() : "DINEIN";
+
+            if (scope == IngredientScope.TAKEAWAY_ONLY && !normalizedType.contains("TAKEAWAY") && !normalizedType.contains("DELIVERY")) {
+                continue;
+            }
+            if (scope == IngredientScope.DINE_IN_ONLY && !normalizedType.contains("DINEIN")) {
+                continue;
+            }
+
+            BigDecimal convertedQty = uomConversionService.calculateBaseQuantity(recipeItem.getInventoryItem(), recipeItem.getUom().getId(), recipeItem.getQuantity());
+            BigDecimal baseQty = convertedQty.multiply(BigDecimal.valueOf(quantity));
             BigDecimal wastage = recipeItem.getWastagePercent() != null ? recipeItem.getWastagePercent() : BigDecimal.ZERO;
             BigDecimal amount = baseQty.multiply(BigDecimal.ONE.add(wastage.divide(BigDecimal.valueOf(100), 4, java.math.RoundingMode.HALF_UP)));
 
@@ -293,38 +310,87 @@ public class OrderEventConsumerService {
             UUID itemId = entry.getKey();
             CancelAggregate agg = entry.getValue();
 
-            if (agg.isWaste()) {
-                // 1. Reverse OUT_SALE
-                stockTransactionService.recordTransaction(StockTransactionRequest.builder()
-                        .itemId(itemId)
-                        .transactionType(TransactionType.REFUND)
-                        .quantityChange(agg.getAmount())
-                        .locationId(agg.getLocationId())
-                        .referenceId(orderId)
-                        .orderLineItemId(orderLineItemId)
-                        .reason("Reversing sale for waste record: " + orderId)
-                        .build());
+            java.util.List<com.fnb.inventory.entity.StockTransaction> historicalOutSales = stockTransactionRepository.findByOrderLineItemIdAndItemIdAndTransactionType(
+                    orderLineItemId, itemId, TransactionType.OUT_SALE);
 
-                // 2. Record OUT_WASTE
-                stockTransactionService.recordTransaction(StockTransactionRequest.builder()
-                        .itemId(itemId)
-                        .transactionType(TransactionType.OUT_WASTE)
-                        .quantityChange(agg.getAmount().negate())
-                        .locationId(agg.getLocationId())
-                        .referenceId(orderId)
-                        .orderLineItemId(orderLineItemId)
-                        .reason("Waste due to cancellation of prepared item: " + orderId)
-                        .build());
+            if (historicalOutSales == null || historicalOutSales.isEmpty()) {
+                if (agg.isWaste()) {
+                    // 1. Reverse OUT_SALE
+                    stockTransactionService.recordTransaction(StockTransactionRequest.builder()
+                            .itemId(itemId)
+                            .transactionType(TransactionType.REFUND)
+                            .quantityChange(agg.getAmount())
+                            .locationId(agg.getLocationId())
+                            .referenceId(orderId)
+                            .orderLineItemId(orderLineItemId)
+                            .reason("Reversing sale for waste record: " + orderId)
+                            .build());
+
+                    // 2. Record OUT_WASTE
+                    stockTransactionService.recordTransaction(StockTransactionRequest.builder()
+                            .itemId(itemId)
+                            .transactionType(TransactionType.OUT_WASTE)
+                            .quantityChange(agg.getAmount().negate())
+                            .locationId(agg.getLocationId())
+                            .referenceId(orderId)
+                            .orderLineItemId(orderLineItemId)
+                            .reason("Waste due to cancellation of prepared item: " + orderId)
+                            .build());
+                } else {
+                    stockTransactionService.recordTransaction(StockTransactionRequest.builder()
+                            .itemId(itemId)
+                            .transactionType(TransactionType.REFUND)
+                            .quantityChange(agg.getAmount())
+                            .locationId(agg.getLocationId())
+                            .referenceId(orderId)
+                            .orderLineItemId(orderLineItemId)
+                            .reason("Stock refund due to order/item cancellation: " + orderId)
+                            .build());
+                }
             } else {
-                stockTransactionService.recordTransaction(StockTransactionRequest.builder()
-                        .itemId(itemId)
-                        .transactionType(TransactionType.REFUND)
-                        .quantityChange(agg.getAmount())
-                        .locationId(agg.getLocationId())
-                        .referenceId(orderId)
-                        .orderLineItemId(orderLineItemId)
-                        .reason("Stock refund due to order/item cancellation: " + orderId)
-                        .build());
+                for (com.fnb.inventory.entity.StockTransaction outSale : historicalOutSales) {
+                    java.math.BigDecimal qtyToRefund = outSale.getQuantityChange().abs();
+                    String lotNumber = outSale.getBatch() != null ? outSale.getBatch().getLotNumber() : null;
+                    UUID locationId = outSale.getLocation() != null ? outSale.getLocation().getId() : agg.getLocationId();
+
+                    if (agg.isWaste()) {
+                        // 1. Reverse OUT_SALE with exact batch
+                        stockTransactionService.recordTransaction(StockTransactionRequest.builder()
+                                .itemId(itemId)
+                                .transactionType(TransactionType.REFUND)
+                                .quantityChange(qtyToRefund)
+                                .locationId(locationId)
+                                .referenceId(orderId)
+                                .orderLineItemId(orderLineItemId)
+                                .lotNumber(lotNumber)
+                                .reason("Reversing sale for waste record: " + orderId)
+                                .build());
+
+                        // 2. Record OUT_WASTE with exact batch
+                        stockTransactionService.recordTransaction(StockTransactionRequest.builder()
+                                .itemId(itemId)
+                                .transactionType(TransactionType.OUT_WASTE)
+                                .quantityChange(qtyToRefund.negate())
+                                .locationId(locationId)
+                                .referenceId(orderId)
+                                .orderLineItemId(orderLineItemId)
+                                .lotNumber(lotNumber)
+                                .reason("Waste due to cancellation of prepared item: " + orderId)
+                                .build());
+                    } else {
+                        // 1. Reverse OUT_SALE with exact batch
+                        stockTransactionService.recordTransaction(StockTransactionRequest.builder()
+                                .itemId(itemId)
+                                .transactionType(TransactionType.REFUND)
+                                .quantityChange(qtyToRefund)
+                                .locationId(locationId)
+                                .referenceId(orderId)
+                                .orderLineItemId(orderLineItemId)
+                                .lotNumber(lotNumber)
+                                .reason("Stock refund due to order/item cancellation: " + orderId)
+                                .build());
+                    }
+                }
             }
         }
     }

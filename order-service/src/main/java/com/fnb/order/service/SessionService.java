@@ -189,6 +189,21 @@ public class SessionService {
         sessionRepository.save(session);
     }
 
+    @Transactional
+    @CacheEvict(value = "order:sessions", key = "#sessionToken")
+    public void extendSession(String sessionToken) {
+        TableSession session = sessionRepository.findBySessionToken(sessionToken)
+                .orElseThrow(() -> new ResourceNotFoundException("Session không tồn tại"));
+
+        if (!"ACTIVE".equals(session.getStatus())) {
+            throw new BusinessException("Session đã đóng, không thể gia hạn");
+        }
+
+        session.setExpiresAt(LocalDateTime.now().plusHours(4));
+        sessionRepository.save(session);
+        log.info("Gia hạn session thành công: {}", sessionToken);
+    }
+
     private SessionResponse toResponse(TableSession session) {
         String orderType = session.getTable() != null ? "DINE_IN" : "TAKEAWAY";
         String identifier = orderType.equals("DINE_IN") 

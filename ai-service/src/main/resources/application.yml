@@ -53,8 +53,10 @@ langchain4j:
     embedding-model:
       enabled: false   # Tắt OpenAI embedding, dùng local model thay thế
 
-# ─── Groq API (Fast Model cho Rewriter/Router/Summarizer) ────────
+# ─── AI Models (Groq Fast Model / Gemini Fallback) ───────────────
 ai:
+  gemini:
+    fallback-model-name: ${GEMINI_FALLBACK_MODEL:gemini-3.5-flash}
   groq:
     base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
     api-key: ${GROQ_API_KEY:}

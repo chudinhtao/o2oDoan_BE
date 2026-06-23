@@ -34,6 +34,7 @@ public class StocktakeService {
     private final InventoryLevelRepository levelRepository;
     private final StockTransactionService stockTransactionService;
     private final com.fnb.inventory.repository.LocationRepository locationRepository;
+    private final UserResolverService userResolverService;
 
     @Transactional
     public StocktakeResponse createSnapshot(com.fnb.inventory.dto.request.StocktakeCreateRequest request) {
@@ -58,8 +59,14 @@ public class StocktakeService {
 
         List<InventoryLevel> currentLevels = levelRepository.findByItemIsActiveTrueAndLocationId(request.getLocationId());
         
+        java.time.LocalDateTime sevenDaysAgo = java.time.LocalDateTime.now().minusDays(7);
         List<StocktakeItem> items = currentLevels.stream()
-                .filter(level -> level.getCurrentStock().compareTo(BigDecimal.ZERO) >= 0)
+                .filter(level -> {
+                    if (level.getCurrentStock().compareTo(BigDecimal.ZERO) != 0) return true;
+                    if (level.getUpdatedAt() != null && level.getUpdatedAt().isAfter(sevenDaysAgo)) return true;
+                    if (level.getUpdatedAt() == null && level.getCreatedAt() != null && level.getCreatedAt().isAfter(sevenDaysAgo)) return true;
+                    return false;
+                })
                 .map(level -> StocktakeItem.builder()
                 .stocktake(stocktake)
                 .item(level.getItem())
@@ -167,9 +174,9 @@ public class StocktakeService {
                 .snapshotTime(s.getSnapshotTime())
                 .completedAt(s.getCompletedAt())
                 .createdAt(s.getCreatedAt())
-                .createdBy(s.getCreatedBy())
+                .createdBy(userResolverService.resolveName(s.getCreatedBy()))
                 .updatedAt(s.getUpdatedAt())
-                .updatedBy(s.getUpdatedBy())
+                .updatedBy(userResolverService.resolveName(s.getUpdatedBy()))
                 .locationId(s.getLocation() != null ? s.getLocation().getId() : null)
                 .locationName(s.getLocation() != null ? s.getLocation().getName() : null)
                 .items(s.getItems().stream().map(i -> StocktakeResponse.StocktakeItemResponse.builder()

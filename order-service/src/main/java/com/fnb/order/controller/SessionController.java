@@ -54,4 +54,11 @@ public class SessionController {
         sessionService.closeSession(token);
         return ResponseEntity.ok(ApiResponse.ok("Đã đóng phiên bàn", null));
     }
+
+    @PostMapping("/{token}/extend")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public ResponseEntity<ApiResponse<Void>> extendSession(@PathVariable String token) {
+        sessionService.extendSession(token);
+        return ResponseEntity.ok(ApiResponse.ok("Đã gia hạn bàn thêm 4 tiếng", null));
+    }
 }

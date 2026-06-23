@@ -41,12 +41,13 @@ public class AdminReservationTools {
           "Dùng để xem lịch đặt bàn hôm nay hoặc tương lai. " +
           "Tham số from/to là datetime yyyy-MM-dd'T'HH:mm:ss")
     public String getUpcomingReservations(@P("Ngày bắt đầu (yyyy-MM-dd'T'HH:mm:ss)") String from,
-                                          @P("Ngày kết thúc (yyyy-MM-dd'T'HH:mm:ss)") String to) {
+                                          @P("Ngày kết thúc (yyyy-MM-dd'T'HH:mm:ss)") String to,
+                                          @P("Số lượng bản ghi tối đa (mặc định 100)") Integer limit) {
         log.info("[RESERVATION-TOOL] getUpcomingReservations from={} to={}", from, to);
         try {
             LocalDateTime startDate = LocalDateTime.parse(from);
             LocalDateTime endDate   = LocalDateTime.parse(to);
-            var res = reservationFeignClient.getAdminReservations(null, null, startDate, endDate, 0, 50);
+            var res = reservationFeignClient.getAdminReservations(null, null, startDate, endDate, 0, limit != null ? limit : 100);
             
             if (res == null || res.getData() == null || res.getData().content().isEmpty()) {
                 return "Không có khách đặt bàn nào trong khoảng thời gian từ " + from + " đến " + to + ".";
@@ -80,13 +81,14 @@ public class AdminReservationTools {
           "Dùng khi admin hỏi 'tỷ lệ hủy bàn', 'bao nhiêu khách không đến'. " +
           "Tham số from/to là datetime yyyy-MM-dd'T'HH:mm:ss")
     public String getReservationStatusSummary(@P("Ngày bắt đầu (yyyy-MM-dd'T'HH:mm:ss)") String from,
-                                              @P("Ngày kết thúc (yyyy-MM-dd'T'HH:mm:ss)") String to) {
+                                              @P("Ngày kết thúc (yyyy-MM-dd'T'HH:mm:ss)") String to,
+                                              @P("Số lượng bản ghi tối đa (mặc định 100)") Integer limit) {
         log.info("[RESERVATION-TOOL] getReservationStatusSummary from={} to={}", from, to);
         try {
             LocalDateTime startDate = LocalDateTime.parse(from);
             LocalDateTime endDate   = LocalDateTime.parse(to);
             // Lay toi da de thong ke memory (vi API nay ho tro page)
-            var res = reservationFeignClient.getAdminReservations(null, null, startDate, endDate, 0, 1000);
+            var res = reservationFeignClient.getAdminReservations(null, null, startDate, endDate, 0, limit != null ? limit : 100);
             
             if (res == null || res.getData() == null || res.getData().content().isEmpty()) {
                 return "Không có dữ liệu thống kê đặt bàn.";

@@ -18,6 +18,12 @@ public interface StockTransactionRepository extends JpaRepository<StockTransacti
 
     boolean existsByOrderLineItemIdAndTransactionType(UUID orderLineItemId, TransactionType transactionType);
 
+    @Query("SELECT st FROM StockTransaction st WHERE st.orderLineItemId = :orderLineItemId AND st.item.id = :itemId AND st.transactionType = :transactionType")
+    java.util.List<StockTransaction> findByOrderLineItemIdAndItemIdAndTransactionType(
+            @Param("orderLineItemId") UUID orderLineItemId, 
+            @Param("itemId") UUID itemId, 
+            @Param("transactionType") TransactionType transactionType);
+
     @Query(value = """
         SELECT st.* FROM inventory.stock_transactions st
         WHERE (CAST(:itemId AS uuid) IS NULL OR st.item_id = CAST(:itemId AS uuid))

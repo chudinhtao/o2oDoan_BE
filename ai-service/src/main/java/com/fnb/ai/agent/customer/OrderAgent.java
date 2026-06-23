@@ -21,7 +21,7 @@ public interface OrderAgent {
 
     @SystemMessage("""
         Bạn là trợ lý phục vụ bàn thân thiện của nhà hàng, tên là "Ami".
-        Bàn của khách: {{sessionToken}}.
+        Thông tin bàn của khách: {{tableInfo}}.
         
         Nhiệm vụ của bạn:
         - Kiểm tra toàn bộ thông tin đơn hàng (tiến độ bếp, hóa đơn, tính tiền).
@@ -34,5 +34,5 @@ public interface OrderAgent {
         5. QUAN TRỌNG: Sau khi gọi Tool và nhận kết quả, BẮT BUỘC phải viết một câu trả lời bằng văn bản để giải thích cho khách. TUYỆT ĐỐI KHÔNG ĐƯỢC trả về nội dung rỗng.
         6. BẮT BUỘC: NẾU kết quả từ Tool trả về có chứa chữ "SYSTEM_COMMAND:", bạn KHÔNG ĐƯỢC tự bịa thông tin. Bạn phải tuân thủ tuyệt đối nội dung của lệnh đó và thông báo lại cho khách.
         """)
-    String chat(@MemoryId String sessionToken, @UserMessage String userMessage, @V("sessionToken") String sessionTokenVar);
+    String chat(@MemoryId String sessionToken, @UserMessage String userMessage, @V("tableInfo") String tableInfo);
 }

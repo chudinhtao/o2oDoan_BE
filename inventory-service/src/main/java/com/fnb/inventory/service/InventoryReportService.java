@@ -8,6 +8,10 @@ import lombok.extern.slf4j.Slf4j;
 import com.fnb.inventory.enums.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.fnb.common.dto.PageResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -26,9 +30,10 @@ public class InventoryReportService {
     private final InventoryItemRepository itemRepository;
 
     @Transactional(readOnly = true)
-    public List<LowStockItemResponse> getLowStockItems() {
-        List<Object[]> results = levelRepository.findLowStockItemsWithTotal();
-        return results.stream().map(row -> {
+    public PageResponse<LowStockItemResponse> getLowStockItems(int page, int size, boolean unpaged) {
+        Pageable pageable = unpaged ? Pageable.unpaged() : PageRequest.of(page, size);
+        Page<Object[]> results = levelRepository.findLowStockItemsWithTotalPageable(pageable);
+        List<LowStockItemResponse> content = results.getContent().stream().map(row -> {
             InventoryItem item = (InventoryItem) row[0];
             BigDecimal totalStock = (BigDecimal) row[1];
             if (totalStock == null) totalStock = BigDecimal.ZERO;
@@ -46,13 +51,15 @@ public class InventoryReportService {
                     .avgCostPrice(item.getAvgCostPrice() != null ? item.getAvgCostPrice() : BigDecimal.ZERO)
                     .build();
         }).collect(Collectors.toList());
+        return PageResponse.of(content, unpaged ? 0 : page, unpaged ? content.size() : size, results.getTotalElements());
     }
 
     @Transactional(readOnly = true)
-    public List<ExpiringStockResponse> getExpiringStockItems(int daysThreshold) {
+    public PageResponse<ExpiringStockResponse> getExpiringStockItems(int daysThreshold, int page, int size, boolean unpaged) {
         java.time.LocalDate targetDate = java.time.LocalDate.now().plusDays(daysThreshold);
-        List<InventoryLevel> expiringLevels = levelRepository.findExpiringItems(targetDate);
-        return expiringLevels.stream().map(level -> {
+        Pageable pageable = unpaged ? Pageable.unpaged() : PageRequest.of(page, size);
+        Page<InventoryLevel> expiringLevels = levelRepository.findExpiringItemsPageable(targetDate, pageable);
+        List<ExpiringStockResponse> content = expiringLevels.getContent().stream().map(level -> {
             InventoryItem item = level.getItem();
             long daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.now(), level.getBatch().getExpiryDate());
             String status = daysRemaining < 0 ? "EXPIRED" : "EXPIRING";
@@ -71,6 +78,7 @@ public class InventoryReportService {
                     .avgCostPrice(item.getAvgCostPrice() != null ? item.getAvgCostPrice() : BigDecimal.ZERO)
                     .build();
         }).collect(Collectors.toList());
+        return PageResponse.of(content, unpaged ? 0 : page, unpaged ? content.size() : size, expiringLevels.getTotalElements());
     }
 
     @Transactional(readOnly = true)
@@ -98,11 +106,13 @@ public class InventoryReportService {
                 }
             }
 
+            BigDecimal negativeAdjustQty = adjustQty.compareTo(BigDecimal.ZERO) < 0 ? adjustQty : BigDecimal.ZERO;
+            BigDecimal totalLossQty = wasteQty.add(negativeAdjustQty);
             BigDecimal totalVarianceQty = wasteQty.add(adjustQty);
             BigDecimal itemAvgCost = item.getAvgCostPrice() != null ? item.getAvgCostPrice() : BigDecimal.ZERO;
             BigDecimal lossValue = BigDecimal.ZERO;
-            if (totalVarianceQty.compareTo(BigDecimal.ZERO) < 0) {
-                lossValue = totalVarianceQty.abs().multiply(itemAvgCost);
+            if (totalLossQty.compareTo(BigDecimal.ZERO) < 0) {
+                lossValue = totalLossQty.abs().multiply(itemAvgCost);
             }
 
             return VarianceReportItemResponse.builder()

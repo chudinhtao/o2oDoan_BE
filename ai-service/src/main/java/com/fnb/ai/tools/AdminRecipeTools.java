@@ -19,11 +19,14 @@ public class AdminRecipeTools {
     private final ObjectMapper objectMapper;
 
     @Tool("Tra cứu danh bạ Nhà cung cấp (Suppliers) của nguyên vật liệu. Lấy tên, số điện thoại, công nợ. " +
-          "Dùng khi admin hỏi: 'Tìm số điện thoại nhà cung cấp thịt', 'Thông tin nhà cung cấp ABC'.")
-    public String getSupplierInfo(@P("Tên nhà cung cấp cần tìm (hoặc để trống)") String search) {
+          "Dùng khi admin hỏi: 'Tìm số điện thoại nhà cung cấp thịt', 'Thông tin nhà cung cấp ABC'. " +
+          "CẢNH BÁO: Tuyệt đối KHÔNG dùng tool này để tính tổng hoặc thống kê. Chỉ dùng để tra cứu chi tiết danh sách.")
+    public String getSupplierInfo(@P("Tên nhà cung cấp cần tìm (hoặc để trống)") String search,
+                                  @P("Số lượng bản ghi tối đa (tùy chọn, mặc định 100)") Integer limit) {
         log.info("[ADMIN-TOOL] getSupplierInfo search={}", search);
         try {
-            var res = inventoryFeignClient.getSuppliers(search, 0, 50);
+            int finalLimit = (limit != null && limit > 0) ? Math.min(limit, 500) : 100;
+            var res = inventoryFeignClient.getSuppliers(search, 0, finalLimit);
             if (res == null || res.getData() == null) return "Không tìm thấy dữ liệu nhà cung cấp.";
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {
@@ -37,7 +40,13 @@ public class AdminRecipeTools {
     public String getRecipeDetails(@P("ID của món ăn (saleItemId)") String saleItemId) {
         log.info("[ADMIN-TOOL] getRecipeDetails saleItemId={}", saleItemId);
         try {
-            var res = inventoryFeignClient.getRecipeBySaleItem(UUID.fromString(saleItemId));
+            UUID id;
+            try {
+                id = UUID.fromString(saleItemId);
+            } catch (IllegalArgumentException ex) {
+                return "Lỗi: ID món ăn không hợp lệ. Vui lòng cung cấp chính xác UUID của món ăn.";
+            }
+            var res = inventoryFeignClient.getRecipeBySaleItem(id);
             if (res == null || res.getData() == null) return "Không tìm thấy định lượng công thức cho món này.";
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {

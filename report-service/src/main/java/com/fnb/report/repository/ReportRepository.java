@@ -203,15 +203,16 @@ public class ReportRepository {
                     AND uc.from_uom_id = ri.uom_id 
                     AND uc.to_uom_id = ii.base_uom_id
                 WHERE COALESCE(ri.scope, 'ALWAYS') = 'ALWAYS'
-                   OR (ri.scope = 'TAKEAWAY_ONLY' AND gs.order_type IN ('TAKEAWAY', 'DELIVERY'))
-                   OR (ri.scope = 'DINE_IN_ONLY' AND gs.order_type = 'DINE_IN')
+                   OR (ri.scope = 'TAKEAWAY_ONLY' AND REPLACE(gs.order_type, '_', '') IN ('TAKEAWAY', 'DELIVERY'))
+                   OR (ri.scope = 'DINE_IN_ONLY' AND REPLACE(gs.order_type, '_', '') = 'DINEIN')
                 GROUP BY ri.inventory_item_id
             ),
             actual AS (
                 SELECT st.item_id as inventory_item_id, -SUM(st.quantity_change) as actual_qty
                 FROM inventory.stock_transactions st
+                LEFT JOIN orders.orders o ON st.reference_id = o.id AND st.transaction_type IN ('OUT_SALE', 'REFUND')
                 WHERE st.transaction_type IN ('OUT_SALE', 'OUT_WASTE', 'ADJUSTMENT', 'REFUND')
-                  AND st.created_at >= ? AND st.created_at <= ?
+                  AND COALESCE(o.created_at, st.created_at) >= ? AND COALESCE(o.created_at, st.created_at) <= ?
                 GROUP BY st.item_id
             )
             SELECT 
@@ -306,13 +307,20 @@ public class ReportRepository {
                 GROUP BY cashier_id
             ),
             cancellations AS (
-                SELECT cancelled_by as cashier_id, 
-                       COUNT(id) as cancelled_orders, 
-                       SUM(total) as cancelled_revenue
-                FROM orders.orders
-                WHERE status = 'CANCELLED' AND DATE(COALESCE(updated_at, created_at)) BETWEEN ? AND ?
-                  AND cancelled_by IS NOT NULL
-                GROUP BY cancelled_by
+                SELECT o.cancelled_by as cashier_id, 
+                       COUNT(DISTINCT o.id) as cancelled_orders, 
+                       COALESCE(SUM(
+                           oti.quantity * (
+                               oti.unit_price + 
+                               COALESCE((SELECT SUM(oio.extra_price) FROM orders.order_item_options oio WHERE oio.ticket_item_id = oti.id), 0)
+                           )
+                       ), 0) as cancelled_revenue
+                FROM orders.orders o
+                LEFT JOIN orders.order_tickets ot ON o.id = ot.order_id
+                LEFT JOIN orders.order_ticket_items oti ON ot.id = oti.ticket_id AND (oti.status = 'CANCELLED' OR oti.status = 'RETURNED')
+                WHERE o.status = 'CANCELLED' AND DATE(COALESCE(o.updated_at, o.created_at)) BETWEEN ? AND ?
+                  AND o.cancelled_by IS NOT NULL
+                GROUP BY o.cancelled_by
             )
             SELECT 
                 COALESCE(s.cashier_id, c.cashier_id) as staff_id,
@@ -499,12 +507,23 @@ public class ReportRepository {
 
         // Cancelled orders stats
         Long cancelledOrders = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM orders.orders WHERE status = 'CANCELLED'" + timeCondCancel + cancelCond,
+            "SELECT COUNT(*) FROM orders.orders o WHERE o.status = 'CANCELLED'" + timeCondCancel.replace("created_at", "o.created_at").replace("updated_at", "o.updated_at") + cancelCond.replace("cancelled_by", "o.cancelled_by"),
             Long.class, timeArgs);
         if (cancelledOrders == null) cancelledOrders = 0L;
 
         BigDecimal cancelledRevenue = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(SUM(total), 0) FROM orders.orders WHERE status = 'CANCELLED'" + timeCondCancel + cancelCond,
+            "SELECT COALESCE(SUM(" +
+            "  oti.quantity * (" +
+            "    oti.unit_price + " +
+            "    COALESCE((SELECT SUM(oio.extra_price) FROM orders.order_item_options oio WHERE oio.ticket_item_id = oti.id), 0)" +
+            "  )" +
+            "), 0) " +
+            "FROM orders.orders o " +
+            "LEFT JOIN orders.order_tickets ot ON o.id = ot.order_id " +
+            "LEFT JOIN orders.order_ticket_items oti ON ot.id = oti.ticket_id AND (oti.status = 'CANCELLED' OR oti.status = 'RETURNED') " +
+            "WHERE o.status = 'CANCELLED'" + 
+            timeCondCancel.replace("created_at", "o.created_at").replace("updated_at", "o.updated_at") + 
+            cancelCond.replace("cancelled_by", "o.cancelled_by"),
             BigDecimal.class, timeArgs);
         if (cancelledRevenue == null) cancelledRevenue = BigDecimal.ZERO;
 
@@ -654,13 +673,20 @@ public class ReportRepository {
         final long totalFinal = totalOrders != null && totalOrders > 0 ? totalOrders : 1L;
 
         String baseSql = """
-            SELECT COALESCE(cancel_reason, 'UNKNOWN') as cancel_reason,
-                   COUNT(id) as cancel_count,
-                   COALESCE(SUM(total), 0) as cancelled_revenue
-            FROM orders
-            WHERE status = 'CANCELLED'
-              AND DATE(COALESCE(updated_at, created_at)) BETWEEN ? AND ?
-            GROUP BY COALESCE(cancel_reason, 'UNKNOWN')
+            SELECT COALESCE(o.cancel_reason, 'UNKNOWN') as cancel_reason,
+                   COUNT(DISTINCT o.id) as cancel_count,
+                   COALESCE(SUM(
+                       oti.quantity * (
+                           oti.unit_price + 
+                           COALESCE((SELECT SUM(oio.extra_price) FROM orders.order_item_options oio WHERE oio.ticket_item_id = oti.id), 0)
+                       )
+                   ), 0) as cancelled_revenue
+            FROM orders.orders o
+            LEFT JOIN orders.order_tickets ot ON o.id = ot.order_id
+            LEFT JOIN orders.order_ticket_items oti ON ot.id = oti.ticket_id AND (oti.status = 'CANCELLED' OR oti.status = 'RETURNED')
+            WHERE o.status = 'CANCELLED'
+              AND DATE(COALESCE(o.updated_at, o.created_at)) BETWEEN ? AND ?
+            GROUP BY COALESCE(o.cancel_reason, 'UNKNOWN')
             """;
             
         String countSql = "SELECT COUNT(*) FROM (" + baseSql + ") AS sub";
@@ -948,7 +974,7 @@ public class ReportRepository {
                 COALESCE(SUM(deposit_amount), 0) as total_deposits,
                 COALESCE(SUM(CASE WHEN status = 'CANCELLED' AND refund_status = 'PENDING_REFUND' THEN deposit_amount ELSE 0 END), 0) as pending_refund,
                 COALESCE(SUM(CASE WHEN status = 'CANCELLED' AND refund_status = 'REFUNDED' THEN deposit_amount ELSE 0 END), 0) as refunded,
-                COALESCE(SUM(CASE WHEN status = 'CANCELLED' AND refund_status = 'NOT_REQUIRED' THEN deposit_amount ELSE 0 END), 0) as forfeited
+                COALESCE(SUM(CASE WHEN (status = 'CANCELLED' OR status = 'NO_SHOW') AND refund_status = 'NOT_REQUIRED' THEN deposit_amount ELSE 0 END), 0) as forfeited
             FROM orders.reservations
             WHERE DATE(booking_time) BETWEEN ? AND ?
             """;

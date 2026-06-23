@@ -165,7 +165,7 @@ public class OrderService {
                         .quantity(1) // Ép về 1 để bếp kiểm soát từng món
                         .note(cartItem.getNote())
                         .station(cartItem.getStation())
-                        .status("PENDING")
+                        .status("RETAIL".equalsIgnoreCase(cartItem.getStation()) ? "DONE" : "PENDING")
                         .build();
 
                 List<OrderItemOption> itemOptions = new ArrayList<>();
@@ -315,6 +315,9 @@ public class OrderService {
                             .imageUrl(item.getImageUrl())
                             .createdAt(item.getCreatedAt())
                             .servedAt(item.getServedAt())
+                            .servedBy(item.getServedBy())
+                            .preparedBy(item.getPreparedBy())
+                            .cancelledBy(item.getCancelledBy())
                             .options(optDTOs)
                             .isAlertSent(item.getIsAlertSent())
                             .kitchenAlertSent(item.getKitchenAlertSent())
@@ -473,6 +476,7 @@ public class OrderService {
             throw new BusinessException("Không thể hủy món đã hoàn thành hoặc đã phục vụ");
         }
 
+        String oldStatus = itemToCancel.getStatus();
         itemToCancel.setStatus("CANCELLED");
         if (cancelledBy != null) itemToCancel.setCancelledBy(cancelledBy);
         if (reason != null && !reason.trim().isEmpty()) {
@@ -489,13 +493,22 @@ public class OrderService {
         if (noMoreActiveItems) {
             targetTicket.setStatus("CANCELLED");
         } else {
-            // Update lại ticket status nếu tất cả món còn lại là DONE (hoặc đã hủy/trả)
+            // Update lại ticket status
             boolean everyActiveIsDone = targetTicket.getItems().stream()
                     .filter(i -> !"CANCELLED".equals(i.getStatus()) && !"RETURNED".equals(i.getStatus()))
                     .allMatch(i -> "DONE".equals(i.getStatus()) || "SERVED".equals(i.getStatus())
                             || "COMPLETED".equals(i.getStatus()));
             if (everyActiveIsDone) {
                 targetTicket.setStatus("DONE");
+            } else {
+                boolean hasAnyProgress = targetTicket.getItems().stream()
+                        .filter(i -> !"CANCELLED".equals(i.getStatus()) && !"RETURNED".equals(i.getStatus()))
+                        .anyMatch(i -> "PREPARING".equals(i.getStatus()) || "DONE".equals(i.getStatus()) || "SERVED".equals(i.getStatus()));
+                if (hasAnyProgress) {
+                    targetTicket.setStatus("PREPARING");
+                } else {
+                    targetTicket.setStatus("PENDING");
+                }
             }
         }
 
@@ -538,7 +551,7 @@ public class OrderService {
                         .orderLineItemId(itemToCancel.getId())
                         .menuItemId(itemToCancel.getMenuItemId())
                         .quantity(itemToCancel.getQuantity())
-                        .kitchenStatus(itemToCancel.getStatus())
+                        .kitchenStatus(oldStatus)
                         .options(itemToCancel.getOptions().stream()
                                 .map(o -> TicketUpdatedEvent.CancelledOption.builder()
                                         .menuItemId(o.getMenuItemId())
@@ -597,6 +610,7 @@ public class OrderService {
                     "Chỉ có thể trả lại món nếu trạng thái đã hoàn thành (DONE) hoặc phục vụ (SERVED). Nếu món chưa làm xong vui lòng dùng chức năng Hủy món.");
         }
 
+        String oldStatus = itemToReturn.getStatus();
         itemToReturn.setStatus("RETURNED");
         if (returnedBy != null) itemToReturn.setCancelledBy(returnedBy);
         if (reason != null && !reason.trim().isEmpty()) {
@@ -605,6 +619,31 @@ public class OrderService {
         }
 
         recalculateTotal(order);
+
+        boolean noMoreActiveItems = targetTicket.getItems().stream()
+                .allMatch(i -> "CANCELLED".equals(i.getStatus()) || "RETURNED".equals(i.getStatus()));
+
+        if (noMoreActiveItems) {
+            targetTicket.setStatus("RETURNED");
+        } else {
+            boolean everyActiveIsDone = targetTicket.getItems().stream()
+                    .filter(i -> !"CANCELLED".equals(i.getStatus()) && !"RETURNED".equals(i.getStatus()))
+                    .allMatch(i -> "DONE".equals(i.getStatus()) || "SERVED".equals(i.getStatus())
+                            || "COMPLETED".equals(i.getStatus()));
+            if (everyActiveIsDone) {
+                targetTicket.setStatus("DONE");
+            } else {
+                boolean hasAnyProgress = targetTicket.getItems().stream()
+                        .filter(i -> !"CANCELLED".equals(i.getStatus()) && !"RETURNED".equals(i.getStatus()))
+                        .anyMatch(i -> "PREPARING".equals(i.getStatus()) || "DONE".equals(i.getStatus()) || "SERVED".equals(i.getStatus()));
+                if (hasAnyProgress) {
+                    targetTicket.setStatus("PREPARING");
+                } else {
+                    targetTicket.setStatus("PENDING");
+                }
+            }
+        }
+
         orderRepository.save(order);
 
         TicketUpdatedEvent event = TicketUpdatedEvent.builder()
@@ -624,7 +663,7 @@ public class OrderService {
                         .orderLineItemId(itemToReturn.getId())
                         .menuItemId(itemToReturn.getMenuItemId())
                         .quantity(itemToReturn.getQuantity())
-                        .kitchenStatus(itemToReturn.getStatus())
+                        .kitchenStatus(oldStatus)
                         .options(itemToReturn.getOptions().stream()
                                 .map(o -> TicketUpdatedEvent.CancelledOption.builder()
                                         .menuItemId(o.getMenuItemId())
@@ -669,7 +708,9 @@ public class OrderService {
                     "Phiếu có món đang được xử lý hoặc đã xong, không thể hủy toàn bộ. Vui lòng hủy từng món chưa làm!");
         }
 
+        Map<UUID, String> oldStatusMap = new HashMap<>();
         for (OrderTicketItem item : targetTicket.getItems()) {
+            oldStatusMap.put(item.getId(), item.getStatus());
             if (!"CANCELLED".equals(item.getStatus())) {
                 item.setStatus("CANCELLED");
                 if (cancelledBy != null) item.setCancelledBy(cancelledBy);
@@ -702,7 +743,7 @@ public class OrderService {
                                 .orderLineItemId(i.getId())
                                 .menuItemId(i.getMenuItemId())
                                 .quantity(i.getQuantity())
-                                .kitchenStatus(i.getStatus())
+                                .kitchenStatus(oldStatusMap.get(i.getId()))
                                 .options(i.getOptions().stream()
                                         .map(o -> TicketUpdatedEvent.CancelledOption.builder()
                                                 .menuItemId(o.getMenuItemId())
@@ -766,6 +807,7 @@ public class OrderService {
                     "Không thể hủy món đã được bếp tiếp nhận hoặc đang làm. Vui lòng liên hệ nhân viên!");
         }
 
+        String oldStatus = itemToCancel.getStatus();
         itemToCancel.setStatus("CANCELLED");
         if (reason != null && !reason.trim().isEmpty()) {
             itemToCancel.setNote(
@@ -811,7 +853,7 @@ public class OrderService {
                         .orderLineItemId(itemToCancel.getId())
                         .menuItemId(itemToCancel.getMenuItemId())
                         .quantity(itemToCancel.getQuantity())
-                        .kitchenStatus(itemToCancel.getStatus())
+                        .kitchenStatus(oldStatus)
                         .options(itemToCancel.getOptions().stream()
                                 .map(o -> TicketUpdatedEvent.CancelledOption.builder()
                                         .menuItemId(o.getMenuItemId())
@@ -865,7 +907,9 @@ public class OrderService {
                     "Có món trong phiếu đã được tiếp nhận hoặc đang xử lý, không thể tự hủy nguyên phiếu. Vui lòng liên hệ nhân viên!");
         }
 
+        Map<UUID, String> oldStatusMap = new HashMap<>();
         for (OrderTicketItem item : targetTicket.getItems()) {
+            oldStatusMap.put(item.getId(), item.getStatus());
             if (!"CANCELLED".equals(item.getStatus())) {
                 item.setStatus("CANCELLED");
                 if (reason != null && !reason.trim().isEmpty()) {
@@ -897,7 +941,7 @@ public class OrderService {
                                 .orderLineItemId(i.getId())
                                 .menuItemId(i.getMenuItemId())
                                 .quantity(i.getQuantity())
-                                .kitchenStatus(i.getStatus())
+                                .kitchenStatus(oldStatusMap.get(i.getId()))
                                 .options(i.getOptions().stream()
                                         .map(o -> TicketUpdatedEvent.CancelledOption.builder()
                                                 .menuItemId(o.getMenuItemId())
@@ -1012,6 +1056,7 @@ public class OrderService {
         // Phase 2: Ghi nhận ai đã duyệt hủy và lý do
         if (cancellerId != null) order.setCancelledBy(cancellerId);
         if (reason != null) order.setCancelReason(reason);
+        Map<UUID, String> oldStatusMap = new HashMap<>();
         // Update all items and tickets to CANCELLED as well
         order.getTickets().forEach(ticket -> {
             boolean onlyPendingOrInProgress = ticket.getItems().stream()
@@ -1020,6 +1065,7 @@ public class OrderService {
             if (onlyPendingOrInProgress) {
                 ticket.setStatus("CANCELLED");
                 ticket.getItems().forEach(item -> {
+                    oldStatusMap.put(item.getId(), item.getStatus());
                     if (!"CANCELLED".equals(item.getStatus())) {
                         item.setStatus("CANCELLED");
                     }
@@ -1054,6 +1100,7 @@ public class OrderService {
                         .orderLineItemId(i.getId())
                         .menuItemId(i.getMenuItemId())
                         .quantity(i.getQuantity())
+                        .kitchenStatus(oldStatusMap.containsKey(i.getId()) ? oldStatusMap.get(i.getId()) : "CANCELLED")
                         .modifiers(i.getOptions() != null ? i.getOptions().stream()
                                 .map(o -> OrderPaidEvent.Modifier.builder()
                                         .menuItemId(o.getMenuItemId())
@@ -1536,7 +1583,7 @@ public class OrderService {
         Order order = orderRepository.findFirstBySessionIdAndStatusIn(session.getId(), Arrays.asList("OPEN"))
                 .orElseThrow(() -> new BusinessException("Không có hóa đơn nào đang mở để yêu cầu thanh toán!"));
 
-        if (order.getTotal() == null || order.getTotal().compareTo(BigDecimal.ZERO) == 0) {
+        if (order.getTickets() == null || order.getTickets().isEmpty()) {
             throw new BusinessException("Hóa đơn chưa có món nào, không thể thanh toán!");
         }
 

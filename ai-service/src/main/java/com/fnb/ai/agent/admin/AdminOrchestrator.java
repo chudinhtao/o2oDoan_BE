@@ -38,6 +38,7 @@ public class AdminOrchestrator {
     private final AdminRouterAgent routerAgent;
     private final JdbcTemplate jdbc;
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
+    private final dev.langchain4j.memory.chat.ChatMemoryProvider chatMemoryProvider;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
@@ -51,67 +52,87 @@ public class AdminOrchestrator {
             return crudCheck;
         }
 
-        // 2. [Phase 4.2] Kiem tra Semantic Cache cho cac cau hoi dai hon 15 ky tu
-        String vectorString = null;
-        if (userMessage.length() > 15) {
-            try {
-                dev.langchain4j.data.embedding.Embedding embedding = embeddingModel.embed(userMessage).content();
-                vectorString = Arrays.toString(embedding.vector());
-                
-                // Siết chặt Cache cho Admin (0.02) để tránh sai số báo cáo
-                String cacheQuery = "SELECT answer FROM ai.admin_semantic_cache WHERE embedding <=> ?::vector < 0.02 AND created_at > NOW() - INTERVAL '15 minutes' LIMIT 1";
-                List<String> cached = jdbc.queryForList(cacheQuery, String.class, vectorString);
-                
-                if (!cached.isEmpty()) {
-                    log.info("[ADMIN CACHE] ⚡ Cache HIT cho cau hoi: {}", userMessage);
-                    return cached.get(0) + "\n\n*(⚡ Trả lời từ bộ nhớ đệm)*";
-                }
-            } catch (Exception e) {
-                log.warn("[ADMIN CACHE] Loi Cache, tiep tuc xu ly: {}", e.getMessage());
-            }
-        }
 
         // 3. [Phase 4.1] Dung LLM Router de phan loai (Cache MISS)
         String routerMemoryId = "stateless-router-" + UUID.randomUUID().toString();
-        String domain = routerAgent.routeIntent(routerMemoryId, userMessage).trim().toUpperCase();
+        
+        // Lay lich su gan nhat de Router hieu anaphora ("mã gì", "nó")
+        String historyContext = "";
+        try {
+            dev.langchain4j.memory.ChatMemory memory = chatMemoryProvider.get(adminId);
+            if (memory != null && memory.messages() != null) {
+                int size = memory.messages().size();
+                int start = Math.max(0, size - 4); // Lay 4 tin nhan gan nhat
+                StringBuilder sb = new StringBuilder();
+                for (int i = start; i < size; i++) {
+                    dev.langchain4j.data.message.ChatMessage msg = memory.messages().get(i);
+                    sb.append(msg.type().name()).append(": ");
+                    if (msg instanceof dev.langchain4j.data.message.UserMessage u) {
+                        sb.append(u.singleText());
+                    } else if (msg instanceof dev.langchain4j.data.message.AiMessage a) {
+                        sb.append(a.text());
+                    } else {
+                        sb.append(msg.toString());
+                    }
+                    sb.append("\n");
+                }
+                historyContext = sb.toString();
+            }
+        } catch (Exception e) {
+            log.warn("[ADMIN-ORCHESTRATOR] Khong the lay lich su chat cho router: {}", e.getMessage());
+        }
+
+        String domain = routerAgent.routeIntent(routerMemoryId, userMessage, historyContext).trim().toUpperCase();
         log.info("[ADMIN-ORCHESTRATOR] adminId={} | domain={} | msg={}", adminId, domain, userMessage);
 
         TimeContext tc = buildTimeContext();
+
+        // Inject thoi gian thuc vao user message de AI luon co ngay chinh xac
+        // (tranh hallucinate ngay khi session memory cu khong co date context)
+        String dateContext = String.format(
+            "[NGAY HOM NAY: %s (%s) | HOM QUA: %s | TUAN NAY: %s den %s | THANG NAY: %s den %s]",
+            tc.today, tc.dayOfWeek, tc.yesterday,
+            tc.weekStart, tc.today,
+            tc.monthStart, tc.today
+        );
+        String enrichedMessage = dateContext + "\n" + userMessage;
+
         String aiResponse;
 
         switch (domain) {
             case "FINANCE":
                 aiResponse = financeAgent.chat(
-                        adminId, userMessage,
+                        adminId, enrichedMessage,
                         tc.today, tc.monthStart, tc.lastMonthStart, tc.lastMonthEnd, tc.sevenDaysAgo
                 );
                 break;
             case "OPS":
                 aiResponse = operationalAgent.chat(
-                        adminId, userMessage,
+                        adminId, enrichedMessage,
                         tc.today, tc.yesterday, tc.weekStart, tc.monthStart, tc.sevenDaysAgo
                 );
                 break;
             case "REPORT":
                 aiResponse = reportAgent.chat(
-                        adminId, userMessage,
+                        adminId, enrichedMessage,
                         tc.today, tc.dayOfWeek, tc.yesterday, tc.weekStart, tc.lastWeekStart, tc.lastWeekEnd, tc.monthStart, tc.lastMonthStart, tc.lastMonthEnd, tc.sevenDaysAgo
                 );
                 break;
-            default: // OTHER
+            case "GREET":
+                aiResponse = generalAgent.chat(adminId, userMessage);
+                break;
+            case "OUT_OF_SCOPE":
+                // Hardcode — không gọi LLM để tránh bị bypass
+                return "Xin lỗi, tôi chỉ hỗ trợ các nghiệp vụ quản lý nhà hàng như: " +
+                        "Báo cáo doanh thu, Phân tích tài chính, Vận hành bếp và Quản lý menu. " +
+                        "Câu hỏi của bạn nằm ngoài phạm vi hỗ trợ của tôi. " +
+                        "Bạn có muốn xem báo cáo kinh doanh hôm nay không?";
+            default:
                 aiResponse = generalAgent.chat(adminId, userMessage);
                 break;
         }
 
-        // 4. Luu ket qua vao Cache (neu la cau hoi du dai)
-        if (vectorString != null && !aiResponse.startsWith("Yeu cau cua ban nam ngoai")) {
-            try {
-                String insertCache = "INSERT INTO ai.admin_semantic_cache (question, embedding, answer) VALUES (?, ?::vector, ?)";
-                jdbc.update(insertCache, userMessage, vectorString, aiResponse);
-            } catch (Exception e) {
-                log.warn("[ADMIN CACHE] Loi luu Cache: {}", e.getMessage());
-            }
-        }
+
 
         return aiResponse;
     }

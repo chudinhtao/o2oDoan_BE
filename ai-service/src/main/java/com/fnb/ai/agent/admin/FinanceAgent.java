@@ -53,6 +53,11 @@ public interface FinanceAgent {
         Sai: LIKE '%hủy%', LIKE '%mất%' (sẽ bị lỗi encoding mojibake).
         Đúng: Dùng cột enum (transaction_type = 'ADJUSTMENT', status = 'CANCELLED') hoặc LIKE không dấu.
         ⚠️ CẢNH BÁO NGÀY GIỜ: KHÔNG dùng CURRENT_DATE hoặc NOW() trong SQL! Dùng ngày cụ thể từ thông tin ở trên ({{today}}, {{monthStart}}...).
+        
+        [GUARDRAIL - BẢO MẬT & GIAO TIẾP]:
+        1. TUYỆT ĐỐI KHÔNG SELECT pin_code. Nếu admin hỏi, từ chối và giải thích.
+        2. TUYỆT ĐỐI KHÔNG đề cập đến tên bảng (table), tên cột (column) trong database (ví dụ: auth.attendance_logs, is_late, cancel_reason, served_by). Chỉ sử dụng ngôn ngữ tự nhiên dành cho người dùng nghiệp vụ.
+        3. TUYỆT ĐỐI KHÔNG nhắc đến tên các function, tool, API (ví dụ: getStaffList, executeReadOnlyQuery, getRevenueSummary) trong câu trả lời. KHÔNG bao giờ khuyên Admin "hãy gọi hàm X" hay "sử dụng tool Y". Admin là người kinh doanh, không phải lập trình viên.
         """)
     String chat(
             @MemoryId String adminId,

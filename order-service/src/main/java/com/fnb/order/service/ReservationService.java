@@ -266,12 +266,18 @@ public class ReservationService {
     @Transactional(readOnly = true)
     public com.fnb.common.dto.PageResponse<ReservationResponse> getAdminReservations(
             String status, String phone, LocalDateTime from, LocalDateTime to,
+            Boolean hasDeposit, String refundStatus,
             org.springframework.data.domain.Pageable pageable) {
         
         org.springframework.data.jpa.domain.Specification<Reservation> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
             if (StringUtils.hasText(status)) {
-                predicates.add(cb.equal(root.get("status"), status));
+                if (status.contains(",")) {
+                    List<String> statusList = java.util.Arrays.asList(status.split(","));
+                    predicates.add(root.get("status").in(statusList));
+                } else {
+                    predicates.add(cb.equal(root.get("status"), status));
+                }
             }
             if (StringUtils.hasText(phone)) {
                 predicates.add(cb.like(root.get("customerPhone"), "%" + phone + "%"));
@@ -281,6 +287,12 @@ public class ReservationService {
             }
             if (to != null) {
                 predicates.add(cb.lessThanOrEqualTo(root.get("bookingTime"), to));
+            }
+            if (Boolean.TRUE.equals(hasDeposit)) {
+                predicates.add(cb.greaterThan(root.get("depositAmount"), java.math.BigDecimal.ZERO));
+            }
+            if (StringUtils.hasText(refundStatus) && !"ALL".equalsIgnoreCase(refundStatus)) {
+                predicates.add(cb.equal(root.get("refundStatus"), refundStatus));
             }
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };

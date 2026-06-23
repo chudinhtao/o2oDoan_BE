@@ -27,6 +27,13 @@ public interface StaffFeignClient {
     @GetMapping("/api/auth/admin/staff/attendance")
     ApiResponse<?> getAttendanceLogs(@org.springframework.web.bind.annotation.RequestParam("from") String from, @org.springframework.web.bind.annotation.RequestParam("to") String to);
 
+    @GetMapping("/api/auth/admin/staff/attendance/summary")
+    ApiResponse<?> getAttendanceSummary(@org.springframework.web.bind.annotation.RequestParam("from") String from, @org.springframework.web.bind.annotation.RequestParam(value = "to", required = false) String to);
+
+    // --- Thao tác vận hành Nhân sự ---
+    @GetMapping("/api/auth/admin/staff/shifts")
+    ApiResponse<?> getAllShifts();
+
     // ─── Response Record ─────────────────────────────────────────────────────
 
     record StaffRow(
@@ -34,7 +41,7 @@ public interface StaffFeignClient {
             String username,
             String role,        // ADMIN | CASHIER | KITCHEN
             String fullName,
-            boolean isActive,
+            boolean active,
             LocalDateTime createdAt
     ) {}
 }

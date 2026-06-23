@@ -19,14 +19,17 @@ public class AdminOrderTools {
     private final ObjectMapper objectMapper;
 
     @Tool("Tìm kiếm lịch sử đơn hàng. Cung cấp startDate/endDate (yyyy-MM-ddTHH:mm:ss) hoặc status (COMPLETED, CANCELLED, PENDING). " +
-          "Dùng khi admin hỏi: 'Lấy cho tôi lịch sử đơn hàng', 'Hôm qua có bao nhiêu đơn bị hủy'.")
+          "Dùng khi admin hỏi: 'Lấy cho tôi lịch sử đơn hàng', 'Hôm qua có bao nhiêu đơn bị hủy'. " +
+          "CẢNH BÁO: Tuyệt đối KHÔNG dùng tool này để tính tổng hoặc thống kê. Chỉ dùng để tra cứu chi tiết danh sách.")
     public String searchOrderHistory(
             @P("Trạng thái đơn hàng (tùy chọn)") String status,
             @P("Ngày bắt đầu ISO (tùy chọn)") String startDate,
-            @P("Ngày kết thúc ISO (tùy chọn)") String endDate) {
+            @P("Ngày kết thúc ISO (tùy chọn)") String endDate,
+            @P("Số lượng bản ghi tối đa (tùy chọn, mặc định 100)") Integer limit) {
         log.info("[ADMIN-TOOL] searchOrderHistory status={} start={} end={}", status, startDate, endDate);
         try {
-            var res = orderFeignClient.getOrderHistory(status, startDate, endDate, 0, 50);
+            int finalLimit = (limit != null && limit > 0) ? Math.min(limit, 500) : 100;
+            var res = orderFeignClient.getOrderHistory(status, startDate, endDate, 0, finalLimit);
             if (res == null || res.getData() == null) return "Không tìm thấy dữ liệu đơn hàng.";
             // Trả về JSON rút gọn cho LLM
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
@@ -41,7 +44,13 @@ public class AdminOrderTools {
     public String getOrderDetails(@P("ID của đơn hàng (UUID)") String orderId) {
         log.info("[ADMIN-TOOL] getOrderDetails id={}", orderId);
         try {
-            var res = orderFeignClient.getOrderById(UUID.fromString(orderId));
+            UUID id;
+            try {
+                id = UUID.fromString(orderId);
+            } catch (IllegalArgumentException ex) {
+                return "Lỗi: ID đơn hàng ('" + orderId + "') không hợp lệ. Vui lòng yêu cầu người dùng cung cấp chính xác UUID của đơn hàng.";
+            }
+            var res = orderFeignClient.getOrderById(id);
             if (res == null || res.getData() == null) return "Không tìm thấy đơn hàng với ID: " + orderId;
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {
@@ -55,7 +64,13 @@ public class AdminOrderTools {
     public String investigateOrderTimeline(@P("ID của đơn hàng (UUID)") String orderId) {
         log.info("[ADMIN-TOOL] investigateOrderTimeline id={}", orderId);
         try {
-            var res = orderFeignClient.getOrderTimeline(UUID.fromString(orderId));
+            UUID id;
+            try {
+                id = UUID.fromString(orderId);
+            } catch (IllegalArgumentException ex) {
+                return "Lỗi: ID đơn hàng ('" + orderId + "') không hợp lệ. Vui lòng yêu cầu người dùng cung cấp chính xác UUID của đơn hàng.";
+            }
+            var res = orderFeignClient.getOrderTimeline(id);
             if (res == null || res.getData() == null) return "Không tìm thấy timeline cho đơn hàng ID: " + orderId;
             return "DỮ LIỆU JSON (SYSTEM_NOTE: TIỀN TỆ TRONG DATA LÀ VNĐ. THỜI GIAN LÀ CHUẨN ISO. KHÔNG ĐƯỢC TỰ SUY DIỄN ĐƠN VỊ ĐO LƯỜNG LỆCH VỚI DATA):\n" + objectMapper.writeValueAsString(res.getData());
         } catch (Exception e) {

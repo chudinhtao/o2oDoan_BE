@@ -1,6 +1,7 @@
 package com.fnb.ai.feign;
 
 import com.fnb.common.dto.ApiResponse;
+import com.fnb.common.dto.PageResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,10 +17,17 @@ import java.util.UUID;
 public interface InventoryFeignClient {
 
     @GetMapping("/api/admin/inventory/reports/low-stock")
-    ApiResponse<List<LowStockItemRow>> getLowStockItems();
+    ApiResponse<PageResponse<LowStockItemRow>> getLowStockItems(
+            @RequestParam("page") int page,
+            @RequestParam("size") int size,
+            @RequestParam("unpaged") boolean unpaged);
 
     @GetMapping("/api/admin/inventory/reports/expiring")
-    ApiResponse<List<ExpiringStockRow>> getExpiringStockItems(@RequestParam(defaultValue = "7") int days);
+    ApiResponse<PageResponse<ExpiringStockRow>> getExpiringStockItems(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam("page") int page,
+            @RequestParam("size") int size,
+            @RequestParam("unpaged") boolean unpaged);
 
     @GetMapping("/api/admin/inventory/reports/variance")
     ApiResponse<VarianceReportRow> getVarianceReport(
@@ -122,7 +130,7 @@ public interface InventoryFeignClient {
     @GetMapping("/api/admin/inventory/transactions")
     ApiResponse<Object> getStockTransactions(
             @RequestParam(required = false, value = "itemId") UUID itemId,
-            @RequestParam(required = false, value = "type") String type,
+            @RequestParam(required = false, value = "transactionType") String type,
             @RequestParam(required = false, value = "startDate") String startDate,
             @RequestParam(required = false, value = "endDate") String endDate,
             @RequestParam(defaultValue = "0", value = "page") int page,

@@ -1,6 +1,7 @@
 package com.fnb.inventory.controller;
 
 import com.fnb.common.dto.ApiResponse;
+import com.fnb.common.dto.PageResponse;
 import com.fnb.inventory.dto.response.LowStockItemResponse;
 import com.fnb.inventory.dto.response.VarianceReportResponse;
 import com.fnb.inventory.service.InventoryReportService;
@@ -26,15 +27,21 @@ public class InventoryReportController {
 
     @GetMapping("/low-stock")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<LowStockItemResponse>>> getLowStockItems() {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.getLowStockItems()));
+    public ResponseEntity<ApiResponse<PageResponse<LowStockItemResponse>>> getLowStockItems(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "false") boolean unpaged) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getLowStockItems(page, size, unpaged)));
     }
 
     @GetMapping("/expiring")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<com.fnb.inventory.dto.response.ExpiringStockResponse>>> getExpiringStockItems(
-            @RequestParam(defaultValue = "7") int days) {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.getExpiringStockItems(days)));
+    public ResponseEntity<ApiResponse<PageResponse<com.fnb.inventory.dto.response.ExpiringStockResponse>>> getExpiringStockItems(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "false") boolean unpaged) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getExpiringStockItems(days, page, size, unpaged)));
     }
 
     @GetMapping("/variance")

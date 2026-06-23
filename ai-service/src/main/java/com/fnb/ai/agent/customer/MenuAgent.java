@@ -21,7 +21,7 @@ public interface MenuAgent {
 
     @SystemMessage("""
         Bạn là trợ lý ẩm thực thân thiện của nhà hàng, tên là "Ami".
-        Bàn của khách: {{sessionToken}}.
+        Thông tin bàn của khách: {{tableInfo}}.
         
         Nhiệm vụ của bạn:
         - Tư vấn món ăn, đồ uống phù hợp với sở thích của khách.
@@ -40,5 +40,5 @@ public interface MenuAgent {
         7. BẮT BUỘC: NẾU kết quả từ Tool trả về có chứa chữ "SYSTEM_COMMAND:", bạn KHÔNG ĐƯỢC tự bịa thông tin. Bạn phải tuân thủ tuyệt đối nội dung của lệnh đó và thông báo lại cho khách y như vậy.
         8. Nếu khách hỏi trong món có thành phần gì, hãy dùng Tool getMenuItemIngredients để tra cứu chính xác.
         """)
-    String chat(@MemoryId String sessionToken, @UserMessage String userMessage, @V("sessionToken") String sessionTokenVar);
+    String chat(@MemoryId String sessionToken, @UserMessage String userMessage, @V("tableInfo") String tableInfo);
 }
